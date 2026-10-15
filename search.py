@@ -6,6 +6,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 import urllib.parse
@@ -20,6 +21,7 @@ import hitmo
 from downloader import BAD_VERSION_RE, SearchResult
 
 SOURCE_TIMEOUT = 8  # секунд на каждый источник, медленные отбрасываем
+FAST_DEADLINE = float(os.getenv("SEARCH_FAST_DEADLINE", "3.0"))  # быстрые источники (каталоги, YT Music) ждём не дольше
 SOFT_DEADLINE = 2.0  # обычный поиск: медленным источникам (SoundCloud, yt-dlp) дольше не ждём
 DEEP_DEADLINE = 7.0  # глубокий поиск
 MIN_FULL_TRACK = 45  # короче — почти наверняка 30-секундный отрывок
@@ -263,6 +265,13 @@ def _sc(q: str, n: int = 8) -> list[SearchResult]:
     return out
 
 
+def _done(t: "asyncio.Task"):
+    """Результат задачи, если она успела; иначе пусто (источник опоздал или упал)."""
+    if t.done() and not t.cancelled() and t.exception() is None:
+        return t.result()
+    return []
+
+
 async def _safe(fn, *args):
     try:
         return await asyncio.wait_for(asyncio.to_thread(fn, *args), SOURCE_TIMEOUT)
@@ -435,9 +444,9 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
         slow["oa"] = T(_safe(_ytm, q + " official audio", "videos", "ytmv"))
         slow["lyr2"] = T(_safe(_ytm, q + " lyrics", "songs", "ytm"))
     # Deezer и проверка «это имя исполнителя?» отвечают первыми — по ним решаем, что делать дальше
-    await asyncio.wait([fast["dz"], fast["art"]])
+    await asyncio.wait([fast["dz"], fast["art"]], timeout=FAST_DEADLINE)
 
-    artist_hit = fast["art"].result()
+    artist_hit = _done(fast["art"]) or None
     if artist_hit:  # «queen» -> только песни Queen, остальные источники не нужны
         for t in list(fast.values()) + list(slow.values()):
             if not t.done():
@@ -450,15 +459,21 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
         ]
         return Outcome(results, "", q, kind="artist", artist=name)
 
-    canons_dz = [c for c in fast["dz"].result() if _canon_relevant(c, tokens)]
+    canons_dz = [c for c in _done(fast["dz"]) if _canon_relevant(c, tokens)]
 
     # шаг 2 стартует сразу, не дожидаясь остальных источников: по точным названиям из каталога
     # ищем скачиваемые версии (то, что не нашлось по сырому запросу)
     second_songs = [T(_safe(_ytm, f"{c.artist} {c.title}", "songs", "ytm")) for c in canons_dz[:3]]
     second_top = [T(_safe(_ytm_top, f"{c.artist} {c.title}")) for c in canons_dz[:2]]
-    await asyncio.wait([t for k, t in fast.items() if k not in ("dz", "art")] + second_songs + second_top)
+    group = [t for k, t in fast.items() if k not in ("dz", "art")] + second_songs + second_top
+    # один зависший источник (например, Яндекс с другого адреса) не должен тормозить весь поиск
+    await asyncio.wait(group, timeout=max(0.3, FAST_DEADLINE - (loop.time() - start)))
+    late = [k for k, t in fast.items() if not t.done()]
+    for t in group:
+        if not t.done():
+            t.cancel()
 
-    canons = _dedupe_canons([canons_dz, [c for c in fast["it"].result() + fast["ym"].result()
+    canons = _dedupe_canons([canons_dz, [c for c in _done(fast["it"]) + _done(fast["ym"])
                                          if _canon_relevant(c, tokens)]])
 
     if fast_only:  # подбор версии при нажатии на трек: медленные источники не ждём совсем
@@ -470,20 +485,22 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
         await asyncio.wait(slow.values(), timeout=left)
 
     # порядок в пуле = приоритет при равных: «Top result», найденное по каталогу, затем всё остальное
-    pool: list[SearchResult] = list(fast["top"].result())
+    pool: list[SearchResult] = list(_done(fast["top"]))
     for t in second_top + second_songs:
-        pool.extend(t.result())
-    pool.extend(fast["ytm"].result())
+        pool.extend(_done(t))
+    pool.extend(_done(fast["ytm"]))
     extra_canons: list[Canon] = []
     for key, t in slow.items():
         if not t.done():
             t.cancel()  # поток дождётся своего таймаута, результат нам уже не нужен
             continue
         if key == "gen":
-            extra_canons = [c for c in t.result() if _canon_relevant(c, tokens)]
+            extra_canons = [c for c in _done(t) if _canon_relevant(c, tokens)]
         else:
-            pool.extend(t.result())
+            pool.extend(_done(t))
     canons = _dedupe_canons([canons, extra_canons])
+    late += [k for k, t in slow.items() if not t.done() or t.cancelled()]
+    logging.info("поиск %r: %.1f с, не успели: %s", q, loop.time() - start, ", ".join(late) or "никто")
 
     if deep:
         results = _merge(pool, canons, q, 14, strict=False)
