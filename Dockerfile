@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 # Python 3.12: на нём есть сборка ShazamIO, поэтому отдельное окружение, как дома, не нужно
 ENV PYTHONUNBUFFERED=1 \
