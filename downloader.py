@@ -453,7 +453,8 @@ def _tikwm(url: str, kind: str, workdir: Path):
     return path, info
 
 
-BOT_BLOCK_MARKERS = ("not a bot", "Sign in to confirm", "HTTP Error 429", "HTTP Error 403")
+# блокировка всего IP: только эти признаки; одиночный 403/429 на одном ролике не повод отключать YouTube для всех песен
+BOT_BLOCK_MARKERS = ("not a bot", "Sign in to confirm")
 # ролик закрыт правообладателем или удалён: другие «клиенты» YouTube не помогут, но сам YouTube не блокирует
 UNAVAILABLE_MARKERS = ("Video unavailable", "blocked", "not available", "Private video", "removed", "copyright")
 
@@ -507,7 +508,7 @@ def _dydki(meta: SearchResult, workdir: Path):
             last = e
             time.sleep(0.5 * 2 ** attempt)
     raise last  # type: ignore[misc]
-YT_BLOCK_TTL = 600  # секунд помним, что YouTube нас режет, и не тратим время на него
+YT_BLOCK_TTL = 120  # секунд помним, что YouTube нас режет, и не тратим время на него
 _yt_blocked_until = 0.0
 YT_ID_RE = re.compile(r"(?:v=|youtu\.be/|shorts/)([\w-]{11})")
 
@@ -637,6 +638,8 @@ def _download_sync(url: str, kind: str, meta: SearchResult | None = None,
                 _yt_blocked_until = time.time() + YT_BLOCK_TTL
             elif uses_yt and any(mk in str(e) for mk in UNAVAILABLE_MARKERS):
                 skip_youtube = True  # именно этот ролик закрыт; YouTube в целом нас не блокирует
+    if not errors and "youtu" in url and time.time() < _yt_blocked_until:
+        errors.append("YouTube временно пропущен (недавняя блокировка IP)")
     raise RuntimeError("Все способы скачивания не сработали: " + " | ".join(errors))
 
 
