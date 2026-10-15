@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+cookies.txt
+*.db
+data/
+downloads/
+.venv/
+.venv312/
+tools/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.claude/
+CLAUDE.md
+run.bat

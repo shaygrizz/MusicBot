@@ -9,9 +9,10 @@ from pathlib import Path
 
 import db
 import downloader
+import paths
 import search
 
-CACHE_DIR = Path(__file__).parent / "data" / "favorites"
+CACHE_DIR = paths.FAVORITES
 MAX_FILES = 400  # старые файлы удаляются, чтобы папка не росла бесконечно
 TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 _inflight: dict[str, asyncio.Task] = {}

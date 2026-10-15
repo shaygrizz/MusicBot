@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,7 +43,7 @@ def _sample(src: Path, dst: Path, start: float) -> None:
 
 
 HERE = Path(__file__).parent
-WORKER_PY = HERE / ".venv312" / "Scripts" / "python.exe"  # у ShazamIO нет сборки под Python 3.14, поэтому 3.12
+WORKER_PY = Path(os.getenv("SHAZAM_PYTHON") or HERE / ".venv312" / "Scripts" / "python.exe")  # дома у ShazamIO отдельное окружение 3.12 (под 3.14 сборки нет); в образе всё на 3.12
 WORKER = HERE / "shazam_worker.py"
 
 

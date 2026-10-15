@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+import paths
 import static_ffmpeg
 import yt_dlp
 
@@ -287,7 +288,7 @@ def _fast_audio(url: str, workdir: Path) -> tuple[Path, dict]:
     return raw, info
 
 
-COOKIES_FILE = Path("cookies.txt")  # необязательно: куки из браузера помогают против блокировок
+COOKIES_FILE = paths.COOKIES  # необязательно: куки из браузера помогают против блокировок
 ALT_YT_CLIENTS = ["tv", "web_safari", "mweb", "ios"]
 TOO_BIG = "File exceeds 50 MB"
 
@@ -309,6 +310,8 @@ def _ytdlp_run(url: str, kind: str, workdir: Path, meta: SearchResult | None,
     }
     if COOKIES_FILE.exists():
         opts["cookiefile"] = str(COOKIES_FILE)
+    if os.getenv("YTDLP_JS_RUNTIME"):  # YouTube просит JS-движок для разбора страницы; в образе это Node.js
+        opts["js_runtimes"] = {os.environ["YTDLP_JS_RUNTIME"]: {}}
     if kind == "audio":
         opts["format"] = "bestaudio[ext=m4a]/bestaudio/best"
     else:

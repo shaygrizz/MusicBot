@@ -14,6 +14,7 @@
     /* цвет: плоский, без градиентов */
     --bg: #0E0916;
     --surface: #181022;
+    --glass: rgba(24, 16, 34, .6);  /* панели поверх страницы: сквозь них виден размытый фон */
     --rule: #3B2E4D;
     --text: #F3EFF8;
     --text2: #BDB3CF;
@@ -39,7 +40,7 @@
   /* фоновая картинка: крупный силуэт, едва заметный */
   main { position: relative; z-index: 1; }
   .backdrop { position: fixed; inset: 0; margin-inline: auto; max-width: 560px; overflow: hidden; pointer-events: none; z-index: 0; }
-  .backdrop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .16; }
+  .backdrop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .24; }
   /* header */
   .letter { display: grid; grid-template-columns: 80px 1fr; gap: var(--s4); align-items: start; }
   .letter .gem { width: 80px; height: 80px; }
@@ -47,6 +48,7 @@
   h1 { margin: 0 0 var(--s2); font: 400 var(--t-h1)/1.1 var(--display); }
   .letter p { margin: 0; max-width: 40ch; color: var(--text2); }
   .letter b { font-weight: 600; color: var(--text); }
+  .letter .note { margin-top: var(--s2); font-size: var(--t-meta); opacity: .75; }
 
   h2 { margin: var(--s7) 0 var(--s1); font: 400 var(--t-h2)/1.2 var(--display); }
   .note { margin: 0 0 var(--s4); color: var(--text2); font-size: var(--t-meta); max-width: 46ch; }
@@ -103,11 +105,11 @@
   .err { color: var(--rose); }
 
   /* окно трека */
-  .shade { position: fixed; inset: 0; background: rgba(5, 3, 9, .78); opacity: 0; pointer-events: none; z-index: 10; }
+  .shade { position: fixed; inset: 0; background: rgba(5, 3, 9, .5); opacity: 0; pointer-events: none; z-index: 10; }
   .shade.on { opacity: 1; pointer-events: auto; }
   .sheet {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; margin-inline: auto; max-width: 560px;
-    background: var(--surface); border-top: 2px solid var(--gold);
+    background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-top: 2px solid var(--gold);
     clip-path: polygon(0 20px, 20px 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
     padding: var(--s5) var(--s4) calc(var(--s5) + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto;
     transform: translateY(105%);
@@ -141,6 +143,7 @@
   .alt button { padding: var(--s4) var(--s2); border: 0; background: none; color: var(--text); font-weight: 500; cursor: pointer; }
   .alt button + button { border-left: 1px solid var(--rule); }
   button:disabled { opacity: .4; cursor: default; }
+  button[hidden] { display: none; }
 
   /* профиль и избранное */
   .avatar { display: block; padding: 0; border: 0; background: none; cursor: pointer; }
@@ -155,7 +158,7 @@
 
   /* плейлист любимого: быстрая кнопка и плеер внизу */
   .quick { margin-top: var(--s5); }
-  .nowbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; margin-inline: auto; max-width: 560px; padding: var(--s4) var(--s4) calc(var(--s3) + env(safe-area-inset-bottom)); background: var(--surface); border-top: 2px solid var(--gold); clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }
+  .nowbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; margin-inline: auto; max-width: 560px; padding: var(--s4) var(--s4) calc(var(--s3) + env(safe-area-inset-bottom)); background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-top: 2px solid var(--gold); clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }
   .nowbar[hidden] { display: none; }
   .nowtop { display: grid; grid-template-columns: 52px 1fr 44px; gap: var(--s3); align-items: center; }
   .disc svg { display: block; width: 52px; height: 52px; }
@@ -211,7 +214,7 @@ const hoursText = s => s >= 3600 ? `${(s / 3600).toFixed(1)} h` : `${Math.max(1,
 const dateShort = dt => dt.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
 // profile, favorites and loaded data live here; render() draws the page from it
-const state = { name: "", tgName: "", avatar: null, favs: [], d: null, recs: [] };
+const state = { name: "", tgName: "", avatar: null, bg: null, favs: [], d: null, recs: [] };
 const norm = s => (s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 const isFav = r => state.favs.some(f => f.key === norm(r.artist) + norm(r.title));
 
@@ -230,9 +233,10 @@ async function post(path, body) {
 // images: full-screen background and small portrait next to the title
 function backdrop() {
   const box = $("div", "backdrop"), img = $("img");
-  box.setAttribute("aria-hidden", "true"); img.alt = ""; img.src = "/static/Diamond.jpg";
+  box.setAttribute("aria-hidden", "true"); img.alt = ""; img.src = state.bg || "/static/Diamond.jpg";
   box.append(img); return box;
 }
+function setBackdrop() { const i = document.querySelector(".backdrop img"); if (i) i.src = state.bg || "/static/Diamond.jpg"; }
 function avatar() {
   const btn = $("button", "avatar"), g = $("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
   btn.setAttribute("aria-label", "Edit profile");
@@ -268,7 +272,7 @@ function letter(d) {
     add(" listened.");
     if (st > 1) { add(" Streak: "); add("", `${st} days`); add("."); }
   }
-  body.append(p); wrap.append(avatar(), body);
+  body.append(p, $("p", "note", "Tap your photo to change the picture and background.")); wrap.append(avatar(), body);
   return wrap;
 }
 
@@ -537,18 +541,26 @@ function stopPlayer() {
   if (tg && tg.disableClosingConfirmation) tg.disableClosingConfirmation();
 }
 
-// any picture -> JPEG up to `max` px on the longer side; the server crops it to a square
+// any picture -> JPEG up to `max` px on the longer side; the server crops it to a square.
+// If the browser cannot decode the file (rare formats), the original goes to the server, whose ffmpeg reads far more formats.
 function resizeImage(file, max) {
-  return new Promise((resolve, reject) => {
+  const raw = () => file;
+  return new Promise(resolve => {
     const url = URL.createObjectURL(file), img = new Image();
     img.onload = () => {
-      const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement("canvas");
-      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      URL.revokeObjectURL(url);
-      c.toBlob(b => b ? resolve(b) : reject(new Error("encode")), "image/jpeg", 0.88);
+      try {
+        const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (!w || !h) throw new Error("size");
+        const k = Math.min(1, max / Math.max(w, h)), c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+        const g = c.getContext("2d");
+        g.fillStyle = "#000"; g.fillRect(0, 0, c.width, c.height);  // transparent areas become dark instead of random
+        g.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(b => resolve(b || raw()), "image/jpeg", 0.88);
+      } catch (e) { URL.revokeObjectURL(url); resolve(raw()); }
     };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("load")); };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(raw()); };
     img.src = url;
   });
 }
@@ -557,10 +569,28 @@ function resizeImage(file, max) {
 const shade = $("div", "shade"), sheet = $("div", "sheet");
 sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); sheet.setAttribute("aria-label", "Track");
 document.body.append(shade, sheet);
-shade.onclick = closeSheet;
+shade.onclick = () => closeSheet();
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
 let sheetAu = null;
-function closeSheet() { shade.classList.remove("on"); sheet.classList.remove("on"); if (sheetAu) sheetAu.pause(); }
+// A swipe or the Back key must close the sheet first and leave the app only on the next one:
+// opening pushes a history entry, and Telegram's own Back button is shown while the sheet is up.
+let sheetOpen = false;
+function showSheet() {
+  shade.classList.add("on"); sheet.classList.add("on");
+  if (sheetOpen) return;
+  sheetOpen = true;
+  try { history.pushState({ sheet: 1 }, ""); } catch (e) {}
+  if (tg && tg.BackButton) tg.BackButton.show();
+}
+function closeSheet(fromHistory) {
+  shade.classList.remove("on"); sheet.classList.remove("on"); if (sheetAu) sheetAu.pause();
+  if (!sheetOpen) return;
+  sheetOpen = false;
+  if (tg && tg.BackButton) tg.BackButton.hide();
+  if (fromHistory !== true && history.state && history.state.sheet) history.back();
+}
+window.addEventListener("popstate", () => { if (sheetOpen) closeSheet(true); });
+if (tg && tg.BackButton) tg.BackButton.onClick(() => closeSheet());
 
 // compact player for a track opened from the lists: same look as the bottom player, no browser controls
 function miniPlayer(src) {
@@ -587,7 +617,7 @@ function miniPlayer(src) {
 
 async function openTrack(rec) {
   sheet.replaceChildren();
-  shade.classList.add("on"); sheet.classList.add("on");
+  showSheet();
   const head = $("div", "head"), info = $("div");
   info.append($("div", "t", rec.title), $("div", "a", rec.artist));
   if (rec.because) info.append($("div", "why", `Because you listen to ${rec.because}`));
@@ -690,20 +720,48 @@ function gifts(items) {
 // profile sheet: change photo and name
 function openProfile() {
   sheet.replaceChildren();
-  shade.classList.add("on"); sheet.classList.add("on");
-  const head = $("div", "head"), info = $("div"), g = $("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
+  showSheet();
+  const head = $("div", "head"), info = $("div"), g =$("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
   img.alt = ""; img.src = state.avatar || "/static/Diamond.jpg"; inner.append(img); g.append(inner);
   info.append($("div", "t", "Profile"));
   head.append(g, info);
-  const file = $("input"); file.type = "file"; file.accept = "image/*"; file.hidden = true;
+  const file = $("input"); file.type = "file"; file.accept = "image/*,.heic,.heif,.avif,.webp,.bmp,.gif,.tif,.tiff"; file.hidden = true;
   const change = $("button", "textbtn", "Change photo");
+  const bgFile = $("input"); bgFile.type = "file"; bgFile.accept = file.accept; bgFile.hidden = true;
+  const bgChange = $("button", "textbtn", "Change background"), bgReset = $("button", "textbtn", "Reset background");
+  bgReset.hidden = !state.bg;
   const label = $("label", "fld-label", "Name");
   const input = $("input", "field"); input.type = "text"; input.maxLength = 30; input.value = state.name; input.autocomplete = "off";
   input.id = "profile-name"; label.htmlFor = input.id;
   const status = $("div", "status"); status.setAttribute("role", "status");
   const save = $("button", "primary", "Save");
-  sheet.append(head, change, file, label, input, status, save);
+  sheet.append(head, change, file, bgChange, bgReset, bgFile, label, input, status, save);
   const setStatus = (t, cls) => { status.className = "status" + (cls ? " " + cls : ""); status.textContent = t; };
+
+  // the big picture behind the page: any image, cropped to fit the screen
+  const sendBg = async blob => {
+    const r = await fetch("/api/background", { method: "POST", body: blob,
+      headers: { "X-Init-Data": tg ? tg.initData : "", "Content-Type": "application/octet-stream" } });
+    if (!r.ok) throw new Error(r.status);
+    state.bg = (await r.json()).bg; setBackdrop(); bgReset.hidden = !state.bg;
+  };
+  bgChange.onclick = () => bgFile.click();
+  bgFile.onchange = async () => {
+    const f = bgFile.files[0]; if (!f) return;
+    bgChange.disabled = true; setStatus("Uploading background…");
+    try {
+      const blob = await resizeImage(f, 1600);
+      if (blob.size > 20 * 1024 * 1024) setStatus("This file is too large.", "bad");
+      else { await sendBg(blob); setStatus("Background updated.", "ok"); }
+    } catch (e) { setStatus("Could not upload the background.", "bad"); }
+    bgChange.disabled = false; bgFile.value = "";
+  };
+  bgReset.onclick = async () => {
+    bgReset.disabled = true;
+    try { await sendBg(new Blob([])); setStatus("Background reset.", "ok"); }
+    catch (e) { setStatus("Could not reset the background.", "bad"); }
+    bgReset.disabled = false;
+  };
 
   change.onclick = () => file.click();
   file.onchange = async () => {
@@ -711,8 +769,9 @@ function openProfile() {
     change.disabled = true; setStatus("Uploading photo…");
     try {
       const blob = await resizeImage(f, 384);
+      if (blob.size > 20 * 1024 * 1024) { setStatus("This file is too large.", "bad"); change.disabled = false; file.value = ""; return; }
       const r = await fetch("/api/avatar", { method: "POST", body: blob,
-        headers: { "X-Init-Data": tg ? tg.initData : "", "Content-Type": "image/jpeg" } });
+        headers: { "X-Init-Data": tg ? tg.initData : "", "Content-Type": "application/octet-stream" } });
       if (!r.ok) throw new Error(r.status);
       state.avatar = (await r.json()).avatar;
       img.src = state.avatar;
@@ -777,6 +836,7 @@ async function main() {
   state.name = state.d.profile.name;
   state.tgName = state.d.profile.tg_name;
   state.avatar = state.d.profile.avatar;
+  state.bg = state.d.profile.bg; setBackdrop();
   state.favs = state.d.favorites;
   if (state.name) { render(); maybeAutoplay(); } else welcome();
 

@@ -3,7 +3,9 @@ import time
 
 import aiosqlite
 
-DB_PATH = "musicbot.db"
+import paths
+
+DB_PATH = str(paths.DB)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -46,6 +48,7 @@ CREATE TABLE IF NOT EXISTS favorites (
 MIGRATIONS = [
     ("users", "display_name", "TEXT"),
     ("users", "avatar_token", "TEXT"),
+    ("users", "bg_token", "TEXT"),
     ("plays", "cover", "TEXT"),
 ]
 
@@ -67,9 +70,10 @@ async def init_db() -> None:
 
 async def get_profile(user_id: int) -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT display_name, avatar_token FROM users WHERE user_id=?", (user_id,))
+        cur = await db.execute("SELECT display_name, avatar_token, bg_token FROM users WHERE user_id=?", (user_id,))
         row = await cur.fetchone()
-    return {"name": (row[0] or "") if row else "", "avatar_token": (row[1] or "") if row else ""}
+    return {"name": (row[0] or "") if row else "", "avatar_token": (row[1] or "") if row else "",
+            "bg_token": (row[2] or "") if row else ""}
 
 
 async def _ensure_user(db, user_id: int) -> None:
@@ -81,6 +85,13 @@ async def set_display_name(user_id: int, name: str) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await _ensure_user(db, user_id)
         await db.execute("UPDATE users SET display_name=? WHERE user_id=?", (name, user_id))
+        await db.commit()
+
+
+async def set_bg_token(user_id: int, token: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await _ensure_user(db, user_id)
+        await db.execute("UPDATE users SET bg_token=? WHERE user_id=?", (token, user_id))
         await db.commit()
 
 

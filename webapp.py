@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import subprocess
@@ -21,6 +22,7 @@ import db
 import downloader
 import favcache
 import favorites as favlib  # внутри make_app есть обработчик с именем favorites
+import paths
 import search
 from downloader import Downloaded, SearchResult
 
@@ -105,8 +107,8 @@ async def _recs(user_id: int) -> list[dict]:
     return recs
 
 
-AVATAR_DIR = Path(__file__).parent / "data" / "avatars"
-AVATAR_MAX = 5 * 1024 * 1024
+AVATAR_DIR = paths.AVATARS
+AVATAR_MAX = 20 * 1024 * 1024
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{16,40}$")
 
 
@@ -115,16 +117,16 @@ def _clean_name(raw) -> str:
     return re.sub(r"\s+", " ", name).strip()[:30]
 
 
-def _make_avatar(data: bytes, dest: Path) -> None:
-    """Любая картинка (jpeg, png, webp) -> квадрат 256x256 JPEG; всё лишнее, включая метаданные, отбрасывается."""
+def _make_avatar(data: bytes, dest: Path, w: int = 256, h: int = 256, q: int = 4) -> None:
+    """Любая картинка (jpeg, png, webp…) -> JPEG w x h с обрезкой по центру; метаданные отбрасываются."""
     tmp = dest.with_suffix(".in")
     tmp.write_bytes(data)
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-i", str(tmp), "-vf",
-             "scale=256:256:force_original_aspect_ratio=increase,crop=256:256", "-frames:v", "1",
-             "-q:v", "4", "-map_metadata", "-1", str(dest)],
-            check=True, timeout=30,
+             f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},format=yuvj420p", "-frames:v", "1",
+             "-q:v", str(q), "-map_metadata", "-1", str(dest)],
+            check=True, timeout=30, capture_output=True,
         )
     finally:
         tmp.unlink(missing_ok=True)
@@ -195,7 +197,8 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         data["user"] = {"id": user["id"], "name": user.get("first_name", "")}
         profile = await db.get_profile(user["id"])
         data["profile"] = {"name": profile["name"], "tg_name": user.get("first_name", ""),
-                           "avatar": f"/avatar/{profile['avatar_token']}" if profile["avatar_token"] else None}
+                           "avatar": f"/avatar/{profile['avatar_token']}" if profile["avatar_token"] else None,
+                           "bg": f"/avatar/{profile['bg_token']}" if profile["bg_token"] else None}
         data["favorites"] = await db.fav_list(user["id"])
         data["bot"] = bot_username
         return web.json_response(data)
@@ -228,6 +231,28 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         if old and TOKEN_RE.match(old):
             (AVATAR_DIR / f"{old}.jpg").unlink(missing_ok=True)
         return web.json_response({"avatar": f"/avatar/{token}"})
+
+    async def upload_background(request: web.Request):
+        """Большая картинка за страницей: обрезается по центру до 900x1600. Пустое тело = вернуть стандартную."""
+        user = await authed_user(request)
+        data = await request.read()
+        if len(data) > AVATAR_MAX:
+            raise web.HTTPBadRequest(text="bad size")
+        old = (await db.get_profile(user["id"]))["bg_token"]
+        token = ""
+        if data:
+            AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+            token = secrets.token_urlsafe(16)
+            dest = AVATAR_DIR / f"{token}.jpg"
+            try:
+                await asyncio.to_thread(_make_avatar, data, dest, 900, 1600, 5)
+            except Exception:
+                dest.unlink(missing_ok=True)
+                raise web.HTTPBadRequest(text="bad image")
+        await db.set_bg_token(user["id"], token)
+        if old and TOKEN_RE.match(old):
+            (AVATAR_DIR / f"{old}.jpg").unlink(missing_ok=True)
+        return web.json_response({"bg": f"/avatar/{token}" if token else None})
 
     async def fav_play(request: web.Request):
         """Адрес звука песни из избранного. Первый раз песня скачивается и остаётся на диске, дальше отдаётся сразу."""
@@ -373,6 +398,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         web.get("/api/dashboard", dashboard),
         web.post("/api/profile", set_profile),
         web.post("/api/avatar", upload_avatar),
+        web.post("/api/background", upload_background),
         web.get("/avatar/{tok}", serve_avatar),
         web.post("/api/favorites", favorites),
         web.post("/api/favplay", fav_play),
@@ -389,6 +415,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
 async def start(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[int], port: int) -> web.AppRunner:
     runner = web.AppRunner(make_app(bot, bot_token, bot_username, allowed))
     await runner.setup()
-    await web.TCPSite(runner, "127.0.0.1", port).start()  # наружу — только через туннель
-    logging.info("Мини-апп слушает http://127.0.0.1:%s", port)
+    host = os.getenv("WEBAPP_HOST", "127.0.0.1")  # дома наружу только через туннель; на хостинге 0.0.0.0
+    await web.TCPSite(runner, host, port).start()
+    logging.info("Мини-апп слушает http://%s:%s", host, port)
     return runner
