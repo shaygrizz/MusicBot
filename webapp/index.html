@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Forum&family=Golos+Text:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    /* цвет: плоский, без градиентов */
+    --bg: #0E0916;
+    --surface: #181022;
+    --rule: #3B2E4D;
+    --text: #F3EFF8;
+    --text2: #BDB3CF;
+    --rose: #E5608F;
+    --gold: #D4B47A;
+    --on-rose: #0E0916;
+    /* отступы: единственная шкала, кратная 4 */
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+    /* шкала шрифтов */
+    --t-meta: 13px; --t-body: 15px; --t-lead: 18px; --t-h2: 24px; --t-h1: 32px;
+    --display: "Forum", "Georgia", serif;
+    --sans: "Golos Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { background: var(--bg); }
+  body {
+    margin: 0 auto; max-width: 560px; padding: var(--s5) var(--s4) calc(var(--s7) + env(safe-area-inset-bottom));
+    background: var(--bg); color: var(--text); font: 400 var(--t-body)/1.5 var(--sans);
+  }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+  button { font: inherit; color: inherit; }
+
+  /* фоновая картинка: крупный силуэт, едва заметный */
+  main { position: relative; z-index: 1; }
+  .backdrop { position: fixed; inset: 0; margin-inline: auto; max-width: 560px; overflow: hidden; pointer-events: none; z-index: 0; }
+  .backdrop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .16; }
+  /* header */
+  .letter { display: grid; grid-template-columns: 80px 1fr; gap: var(--s4); align-items: start; }
+  .letter .gem { width: 80px; height: 80px; }
+  .letter .gem img { object-position: center 20%; }
+  h1 { margin: 0 0 var(--s2); font: 400 var(--t-h1)/1.1 var(--display); }
+  .letter p { margin: 0; max-width: 40ch; color: var(--text2); }
+  .letter b { font-weight: 600; color: var(--text); }
+
+  h2 { margin: var(--s7) 0 var(--s1); font: 400 var(--t-h2)/1.2 var(--display); }
+  .note { margin: 0 0 var(--s4); color: var(--text2); font-size: var(--t-meta); max-width: 46ch; }
+  .rule { height: 1px; background: var(--rule); margin: var(--s3) 0 var(--s4); }
+
+  /* дни: грани */
+  svg { display: block; width: 100%; height: auto; }
+  .vinyl .disc { fill: none; stroke: var(--rule); stroke-width: 1.5; }
+  .vinyl .groove { fill: none; stroke: var(--rule); stroke-width: 1; }
+  .vinyl .label { fill: var(--rule); }
+  .vinyl.l1 .disc { fill: #5A2A44; stroke: #8A3B63; }
+  .vinyl.l1 .groove { stroke: #8A3B63; }
+  .vinyl.l1 .label { fill: #8A3B63; }
+  .vinyl.l2 .disc { fill: #9C3F69; stroke: var(--rose); }
+  .vinyl.l2 .groove { stroke: var(--rose); }
+  .vinyl.l2 .label { fill: var(--rose); }
+  .vinyl.l3 .disc { fill: var(--rose); stroke: var(--rose); }
+  .vinyl.l3 .groove { stroke: var(--on-rose); opacity: .45; }
+  .vinyl.l3 .label { fill: var(--gold); }
+  .vinyl.today .disc { stroke: var(--gold); stroke-width: 2.5; }
+  .axis { display: flex; justify-content: space-between; margin-top: var(--s2); color: var(--text2); font-size: var(--t-meta); }
+
+  /* часы */
+  .clock { max-width: 220px; margin-inline: auto; }
+  .tick { stroke: var(--rule); stroke-width: 2.5; stroke-linecap: round; }
+  .tick.on { stroke: var(--rose); }
+  .tick.peak { stroke: var(--gold); }
+  .hr { fill: var(--text2); font: 400 10px var(--sans); text-anchor: middle; }
+  .peak-t { fill: var(--text); font: 400 28px var(--display); text-anchor: middle; }
+  .clock p { margin: 0; color: var(--text2); font-size: var(--t-meta); }
+
+  /* списки */
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { display: grid; grid-template-columns: var(--s5) 1fr auto; gap: var(--s3); align-items: baseline; padding: var(--s3) 0; border-top: 1px solid var(--rule); }
+  .list li:last-child { border-bottom: 1px solid var(--rule); }
+  .list.plain li { grid-template-columns: 1fr auto; }
+  .rank { font: 400 var(--t-lead)/1 var(--display); color: var(--gold); }
+  .nm { overflow-wrap: anywhere; font-weight: 500; }
+  .sb { display: block; font-weight: 400; color: var(--text2); font-size: var(--t-meta); }
+  .ct { color: var(--text2); font-size: var(--t-meta); white-space: nowrap; }
+
+  /* дары */
+  .gifts { display: flex; gap: var(--s4); overflow-x: auto; margin-inline: calc(var(--s4) * -1); padding: var(--s1) var(--s4) var(--s3); scrollbar-width: none; }
+  .gifts::-webkit-scrollbar { display: none; }
+  .gift { flex: none; width: 136px; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+  .cut8 { clip-path: polygon(16% 0, 84% 0, 100% 16%, 100% 84%, 84% 100%, 16% 100%, 0 84%, 0 16%); }
+  .gem { width: 136px; height: 136px; padding: 2px; background: var(--gold); }
+  .gem > div { width: 100%; height: 100%; background: var(--surface); }
+  .gem img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gift .t { margin-top: var(--s3); font: 400 var(--t-lead)/1.2 var(--display); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .gift .a { margin-top: var(--s1); color: var(--text2); font-size: var(--t-meta); }
+
+  .empty, .err { padding: var(--s5) 0; font: 400 var(--t-lead)/1.4 var(--display); color: var(--text2); }
+  .err { color: var(--rose); }
+
+  /* окно трека */
+  .shade { position: fixed; inset: 0; background: rgba(5, 3, 9, .78); opacity: 0; pointer-events: none; z-index: 10; }
+  .shade.on { opacity: 1; pointer-events: auto; }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; margin-inline: auto; max-width: 560px;
+    background: var(--surface); border-top: 2px solid var(--gold);
+    clip-path: polygon(0 20px, 20px 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+    padding: var(--s5) var(--s4) calc(var(--s5) + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto;
+    transform: translateY(105%);
+  }
+  .sheet.on { transform: none; }
+  @media (prefers-reduced-motion: no-preference) { .sheet { transition: transform .25s ease-out; } }
+  .head { display: grid; grid-template-columns: 80px 1fr; gap: var(--s4); align-items: center; }
+  .head .gem { width: 80px; height: 80px; }
+  .head .t { font: 400 var(--t-h2)/1.15 var(--display); overflow-wrap: anywhere; }
+  .head .a { margin-top: var(--s1); color: var(--text2); }
+  .why { margin-top: var(--s2); color: var(--gold); font-size: var(--t-meta); }
+  .status { min-height: 24px; margin: var(--s4) 0 var(--s2); color: var(--text2); }
+  .status.ok { color: var(--text); }
+  .status.bad { color: var(--rose); }
+  .vers { margin: 0 0 var(--s3); padding: 0; list-style: none; }
+  .ver { display: grid; grid-template-columns: var(--s4) 1fr auto; gap: var(--s3); align-items: center; padding: var(--s3) 0; border-top: 1px solid var(--rule); cursor: pointer; }
+  .ver .mk { width: 14px; height: 14px; border: 1.5px solid var(--text2); border-radius: 50%; justify-self: center; }
+  .ver.sel .mk { background: var(--rose); border-color: var(--rose); box-shadow: inset 0 0 0 3px var(--surface); }
+  .ver .vt { overflow-wrap: anywhere; font-weight: 500; }
+  .ver.sel .vt { color: var(--text); }
+  .ver .vs { display: block; color: var(--text2); font-size: var(--t-meta); font-weight: 400; }
+  .ver .vd { color: var(--text2); font-size: var(--t-meta); white-space: nowrap; }
+  .mini { display: grid; grid-template-columns: 44px 1fr 48px; gap: var(--s3); align-items: center; margin: var(--s3) 0; padding: var(--s3) 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .mini .disc svg { width: 44px; height: 44px; }
+  .mini .seek { margin-top: 0; }
+  .mini .ico.main { width: 48px; height: 48px; }
+  .mini .ico.main svg { width: 24px; height: 24px; }
+  @media (prefers-reduced-motion: no-preference) { .mini.playing .disc svg { animation: spin 6s linear infinite; } }
+  .primary { display: block; width: 100%; padding: var(--s4); border: 0; background: var(--rose); color: var(--on-rose); font-weight: 600; font-size: var(--t-body); cursor: pointer; }
+  .alt { display: grid; grid-template-columns: 1fr 1fr; margin-top: var(--s3); border-top: 1px solid var(--rule); }
+  .alt button { padding: var(--s4) var(--s2); border: 0; background: none; color: var(--text); font-weight: 500; cursor: pointer; }
+  .alt button + button { border-left: 1px solid var(--rule); }
+  button:disabled { opacity: .4; cursor: default; }
+
+  /* профиль и избранное */
+  .avatar { display: block; padding: 0; border: 0; background: none; cursor: pointer; }
+  .field { display: block; width: 100%; padding: var(--s3) var(--s4); border: 1px solid var(--rule); border-radius: 0; background: var(--bg); color: var(--text); font: inherit; }
+  .fld-label { display: block; margin: var(--s4) 0 var(--s2); color: var(--text2); font-size: var(--t-meta); }
+  .welcome { padding-top: var(--s7); }
+  .welcome h1 { margin-bottom: var(--s5); }
+  .welcome .primary { margin-top: var(--s4); }
+  .textbtn { display: block; width: 100%; margin-top: var(--s3); padding: var(--s4) var(--s2); border: 0; border-top: 1px solid var(--rule); background: none; color: var(--text); font-weight: 500; cursor: pointer; }
+  .favrow { display: grid; grid-template-columns: 1fr auto; gap: var(--s3); align-items: baseline; width: 100%; padding: var(--s3) 0; border: 0; border-top: 1px solid var(--rule); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .favlist .favrow:last-child { border-bottom: 1px solid var(--rule); }
+
+  /* плейлист любимого: быстрая кнопка и плеер внизу */
+  .quick { margin-top: var(--s5); }
+  .nowbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; margin-inline: auto; max-width: 560px; padding: var(--s4) var(--s4) calc(var(--s3) + env(safe-area-inset-bottom)); background: var(--surface); border-top: 2px solid var(--gold); clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }
+  .nowbar[hidden] { display: none; }
+  .nowtop { display: grid; grid-template-columns: 52px 1fr 44px; gap: var(--s3); align-items: center; }
+  .disc svg { display: block; width: 52px; height: 52px; }
+  .dsc { fill: var(--rose); }
+  .dgr { fill: none; stroke: var(--on-rose); stroke-width: 1; opacity: .4; }
+  .dlb { fill: var(--gold); }
+  .dho { fill: var(--surface); }
+  .dsh { fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; opacity: .6; }
+  @media (prefers-reduced-motion: no-preference) {
+    .nowbar.playing .disc svg { animation: spin 6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  }
+  .nowinfo { min-width: 0; }
+  .nowt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--t-lead)/1.2 var(--display); }
+  .nows { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); font-size: var(--t-meta); }
+  .seek { position: relative; height: 28px; margin-top: var(--s3); }
+  .seek::before { content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 2px; background: var(--rule); }
+  .seekfill { position: absolute; left: 0; top: 13px; height: 2px; width: 0; background: var(--rose); }
+  .seekdot { position: absolute; top: 7px; left: 0; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--gold); pointer-events: none; }
+  .seekin { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .seek:focus-within { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .times { display: flex; justify-content: space-between; color: var(--text2); font-size: var(--t-meta); }
+  .ctrl { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; justify-items: center; margin-top: var(--s2); }
+  .ico { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; background: none; color: var(--text); cursor: pointer; }
+  .ico svg { width: 24px; height: 24px; fill: currentColor; }
+  .ico.main { width: 60px; height: 60px; border-radius: 50%; background: var(--rose); color: var(--on-rose); }
+  .ico.main svg { width: 28px; height: 28px; }
+  .ico.quiet { color: var(--text2); }
+  .nowmsg { min-height: 20px; margin-top: var(--s2); color: var(--text2); font-size: var(--t-meta); text-align: center; }
+  .nowbar .textbtn { margin-top: var(--s2); padding-block: var(--s3); }
+  body.withbar { padding-bottom: calc(300px + env(safe-area-inset-bottom)); }
+</style>
+</head>
+<body>
+<main id="app"><div class="empty">Loading…</div></main>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) {
+  tg.ready(); tg.expand();
+  try { tg.setHeaderColor("#0E0916"); tg.setBackgroundColor("#0E0916"); } catch (e) {}
+}
+
+const $ = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const NS = "http://www.w3.org/2000/svg";
+const svg = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+const pad = n => String(n).padStart(2, "0");
+const dayKey = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const plural = (n, one, many) => n === 1 ? one : many;
+const tracks = n => `${n} ${plural(n, "track", "tracks")}`;
+const mmss = s => s ? `${Math.floor(s / 60)}:${pad(Math.round(s % 60))}` : "";
+const hoursText = s => s >= 3600 ? `${(s / 3600).toFixed(1)} h` : `${Math.max(1, Math.round(s / 60))} min`;
+const dateShort = dt => dt.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+// profile, favorites and loaded data live here; render() draws the page from it
+const state = { name: "", tgName: "", avatar: null, favs: [], d: null, recs: [] };
+const norm = s => (s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+const isFav = r => state.favs.some(f => f.key === norm(r.artist) + norm(r.title));
+
+async function api(path) {
+  const r = await fetch(path, { headers: { "X-Init-Data": tg ? tg.initData : "" } });
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", body: JSON.stringify(body),
+    headers: { "X-Init-Data": tg ? tg.initData : "", "Content-Type": "application/json" } });
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+// images: full-screen background and small portrait next to the title
+function backdrop() {
+  const box = $("div", "backdrop"), img = $("img");
+  box.setAttribute("aria-hidden", "true"); img.alt = ""; img.src = "/static/Diamond.jpg";
+  box.append(img); return box;
+}
+function avatar() {
+  const btn = $("button", "avatar"), g = $("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
+  btn.setAttribute("aria-label", "Edit profile");
+  img.alt = "Profile photo"; img.src = state.avatar || "/static/Diamond.jpg"; inner.append(img); g.append(inner); btn.append(g);
+  btn.onclick = openProfile;
+  return btn;
+}
+
+function section(title, note, node) {
+  const f = document.createDocumentFragment();
+  f.append($("h2", null, title));
+  if (note) f.append($("p", "note", note));
+  f.append(node);
+  return f;
+}
+
+function streak(days) {
+  let n = 0; const d = new Date();
+  if (!days[dayKey(d)]) d.setDate(d.getDate() - 1);
+  while (days[dayKey(d)]) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+
+function letter(d) {
+  const wrap = $("div", "letter"), body = $("div"), p = $("p");  // avatar (a button) opens the profile sheet
+  body.append($("h1", null, state.name ? `Your Music, ${state.name}` : "Your Music"));
+  if (!d.total) p.textContent = "No activity yet.";
+  else {
+    const st = streak(d.days);
+    const add = (t, b) => { if (t) p.append(document.createTextNode(t)); if (b) p.append($("b", null, b)); };
+    add("", tracks(d.total));
+    add(", ", hoursText(d.seconds));
+    add(" listened.");
+    if (st > 1) { add(" Streak: "); add("", `${st} days`); add("."); }
+  }
+  body.append(p); wrap.append(avatar(), body);
+  return wrap;
+}
+
+// one day as a vinyl record: outer disc, groove ring, centre label
+function vinyl(cx, cy, r, cls) {
+  const g = svg("g", { class: "vinyl" + (cls ? " " + cls : "") });
+  g.append(svg("circle", { class: "disc", cx, cy, r }),
+           svg("circle", { class: "groove", cx, cy, r: r * 0.64 }),
+           svg("circle", { class: "label", cx, cy, r: r * 0.3 }));
+  return g;
+}
+
+function daysGrid(days) {
+  const cols = 10, rows = 3, step = 32, r = 13;
+  const s = svg("svg", { viewBox: `0 0 ${cols * step} ${rows * step}`, role: "img", "aria-label": "Activity over the last 30 days" });
+  const vals = [], dates = [];
+  for (let i = 29; i >= 0; i--) { const dt = new Date(); dt.setDate(dt.getDate() - i); dates.push(dt); vals.push(days[dayKey(dt)] || 0); }
+  const max = Math.max(1, ...vals);
+  vals.forEach((v, i) => {
+    const lvl = v === 0 ? 0 : Math.min(3, 1 + Math.floor((v / max) * 2.99));
+    const p = vinyl((i % cols) * step + step / 2, Math.floor(i / cols) * step + step / 2, r, `${lvl ? "l" + lvl : ""}${i === 29 ? " today" : ""}`.trim());
+    const t = svg("title", {}); t.textContent = `${dateShort(dates[i])}: ${tracks(v)}`;
+    p.append(t); s.append(p);
+  });
+  const wrap = $("div"), axis = $("div", "axis");
+  axis.append($("span", null, "30 days ago"), $("span", null, "Today"));
+  wrap.append(s, axis);
+  return wrap;
+}
+
+function clock(hours) {
+  const list = Array.from({ length: 24 }, (_, h) => hours[h] || 0), max = Math.max(...list), peak = list.indexOf(max);
+  const s = svg("svg", { viewBox: "0 0 200 200", role: "img", "aria-label": "Listening by hour of day" });
+  list.forEach((v, h) => {
+    const a = (h * 15 - 90) * Math.PI / 180, r1 = 58, r2 = r1 + (v ? 8 + 26 * (v / max) : 4);
+    s.append(svg("line", { x1: 100 + r1 * Math.cos(a), y1: 100 + r1 * Math.sin(a), x2: 100 + r2 * Math.cos(a), y2: 100 + r2 * Math.sin(a),
+      class: `tick${v ? " on" : ""}${v && h === peak ? " peak" : ""}` }));
+  });
+  [0, 6, 12, 18].forEach(h => {
+    const a = (h * 15 - 90) * Math.PI / 180;
+    const tx = svg("text", { x: 100 + 92 * Math.cos(a), y: 100 + 92 * Math.sin(a) + 3, class: "hr" }); tx.textContent = h; s.append(tx);
+  });
+  const wrap = $("div", "clock");
+  if (max) {
+    const c = svg("text", { x: 100, y: 110, class: "peak-t" }); c.textContent = `${pad(peak)}:00`; s.append(c);
+  }
+  wrap.append(s);
+  return wrap;
+}
+
+function ranked(items, main, sub, count) {
+  const ul = $("ul", "list");
+  items.forEach((it, i) => {
+    const li = $("li"), box = $("div", "nm");
+    box.append(document.createTextNode(main(it)));
+    if (sub && sub(it)) box.append($("span", "sb", sub(it)));
+    li.append($("span", "rank", i + 1), box, $("span", "ct", count(it)));
+    ul.append(li);
+  });
+  return ul;
+}
+
+function recent(items) {
+  const ul = $("ul", "list plain");
+  items.forEach(it => {
+    const li = $("li"), box = $("div", "nm"), dt = new Date(it.ts * 1000);
+    box.append(document.createTextNode(it.title), $("span", "sb", it.artist || "Unknown artist"));
+    li.append(box, $("span", "ct", `${dateShort(dt)}, ${pad(dt.getHours())}:${pad(dt.getMinutes())}`));
+    ul.append(li);
+  });
+  return ul;
+}
+
+function gem(url) {
+  const g = $("div", "gem cut8"), inner = $("div", "cut8");
+  if (url && url.startsWith("https://")) { const i = $("img"); i.src = url; i.alt = ""; i.loading = "lazy"; inner.append(i); }
+  g.append(inner); return g;
+}
+
+function favList() {
+  const wrap = $("div", "favlist");
+  if (!state.favs.length) { wrap.append($("p", "note", "No tracks yet.")); return wrap; }
+  state.favs.forEach(f => {
+    const b = $("button", "favrow"), box = $("div", "nm");
+    box.append(document.createTextNode(f.title), $("span", "sb", f.artist || "Unknown artist"));
+    b.append(box, $("span", "ct", mmss(f.duration)));
+    b.setAttribute("aria-label", `${f.title}, ${f.artist}`);
+    b.onclick = () => openTrack(f);
+    wrap.append(b);
+  });
+  return wrap;
+}
+function favBox() { const box = $("div"); box.id = "favs"; box.append(favList()); return box; }
+function renderFavs() {
+  const box = document.getElementById("favs");
+  if (box) box.replaceChildren(favList());
+  fillQuick(document.getElementById("quick"));
+}
+
+// favorites player: plays the whole list one track after another inside the page
+const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+const player = { items: [], i: -1, token: 0, cache: {}, bar: null, au: null, els: {} };
+
+function quickBox() { const box = $("div", "quick"); box.id = "quick"; fillQuick(box); return box; }
+function fillQuick(box) {
+  if (!box) return;
+  box.replaceChildren();
+  if (!state.favs.length) return;
+  const play = $("button", "primary", `Play favorites (${state.favs.length})`), shuffle = $("button", "textbtn", "Shuffle");
+  play.onclick = () => startFavorites(false);
+  shuffle.onclick = () => startFavorites(true);
+  box.append(play, shuffle);
+}
+
+const ICONS = {
+  prev: "M6 6h2v12H6zM19 6v12L9.5 12z", next: "M16 6h2v12h-2zM5 6v12l9.5-6z",
+  play: "M8 5v14l11-7z", pause: "M7 5h3.5v14H7zM13.5 5H17v14h-3.5z",
+};
+function icon(name) {
+  const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
+  const p = svg("path", { d: name === "close" ? "M6 6l12 12M18 6L6 18" : ICONS[name] });
+  if (name === "close") { p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "2"); }
+  s.append(p); return s;
+}
+function iconButton(name, label, cls) {
+  const b = $("button", "ico" + (cls ? " " + cls : ""));
+  b.setAttribute("aria-label", label); b.append(icon(name)); return b;
+}
+function discSvg() {  // a small vinyl record; it spins while the music plays
+  const s = svg("svg", { viewBox: "0 0 48 48", "aria-hidden": "true" });
+  s.append(svg("circle", { cx: 24, cy: 24, r: 22, class: "dsc" }), svg("circle", { cx: 24, cy: 24, r: 16, class: "dgr" }),
+    svg("circle", { cx: 24, cy: 24, r: 11, class: "dgr" }), svg("circle", { cx: 24, cy: 24, r: 6, class: "dlb" }),
+    svg("circle", { cx: 24, cy: 24, r: 1.6, class: "dho" }), svg("path", { d: "M24 4a20 20 0 0 1 17 9", class: "dsh" }));
+  return s;
+}
+const tm = s => Number.isFinite(s) ? `${Math.floor(s / 60)}:${pad(Math.floor(s % 60))}` : "0:00";
+
+function ensurePlayerBar() {
+  if (player.bar) { player.bar.hidden = false; document.body.classList.add("withbar"); return; }
+  const au = new Audio(); au.preload = "auto";
+  const bar = $("div", "nowbar"), top = $("div", "nowtop"), disc = $("div", "disc"), info = $("div", "nowinfo");
+  const title = $("div", "nowt"), sub = $("div", "nows"), close = iconButton("close", "Close player", "quiet");
+  const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
+  const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
+  const ctrl = $("div", "ctrl"), prev = iconButton("prev", "Previous track"), main = iconButton("play", "Play", "main"), next = iconButton("next", "Next track");
+  const msg = $("div", "nowmsg"), hand = $("button", "textbtn", "Continue in chat");
+  range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
+  msg.setAttribute("role", "status");
+  disc.append(discSvg()); info.append(title, sub); top.append(disc, info, close);
+  seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(prev, main, next);
+  bar.append(top, seek, times, ctrl, msg, hand);
+  document.body.append(bar); document.body.classList.add("withbar");
+  Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand } });
+
+  const shown = () => {
+    const p = au.duration ? au.currentTime / au.duration : 0;
+    fill.style.width = dot.style.left = `${p * 100}%`;
+    range.value = Math.round(p * 1000); cur.textContent = tm(au.currentTime); dur.textContent = au.duration ? tm(au.duration) : "";
+    if ("mediaSession" in navigator && navigator.mediaSession.setPositionState && au.duration) {
+      try { navigator.mediaSession.setPositionState({ duration: au.duration, position: au.currentTime, playbackRate: 1 }); } catch (e) {}
+    }
+  };
+  const state_ = on => {
+    bar.classList.toggle("playing", on); main.replaceChildren(icon(on ? "pause" : "play")); main.setAttribute("aria-label", on ? "Pause" : "Play");
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = on ? "playing" : "paused";
+  };
+  au.addEventListener("timeupdate", shown); au.addEventListener("durationchange", shown);
+  au.addEventListener("play", () => state_(true)); au.addEventListener("pause", () => state_(false));
+  au.addEventListener("ended", () => { if (!au.src.startsWith("data:")) playAt(player.i + 1); });  // the silent unlock clip must not skip a track
+  main.onclick = () => { if (au.src && !au.src.startsWith("data:")) au.paused ? au.play().catch(() => {}) : au.pause(); };
+  range.oninput = () => { if (au.duration) au.currentTime = au.duration * range.value / 1000; };
+  prev.onclick = () => { if (au.currentTime > 3 || player.i === 0) au.currentTime = 0; else playAt(player.i - 1); };
+  next.onclick = () => playAt(player.i + 1);
+  close.onclick = stopPlayer;
+  hand.onclick = handOff;
+  if ("mediaSession" in navigator) {  // lock-screen and notification controls
+    const set = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
+    set("play", () => au.play()); set("pause", () => au.pause());
+    set("previoustrack", () => prev.onclick()); set("nexttrack", () => playAt(player.i + 1));
+    set("seekto", d => { if (au.duration && d.seekTime != null) au.currentTime = d.seekTime; });
+  }
+}
+
+function setNow(it, text) {
+  const e = player.els;
+  e.title.textContent = it ? it.title : "";
+  e.sub.textContent = it ? `${it.artist || ""}${player.items.length > 1 ? `, ${player.i + 1} of ${player.items.length}` : ""}` : "";
+  e.msg.textContent = text || "";
+  if (it && "mediaSession" in navigator && window.MediaMetadata) {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: it.title, artist: it.artist || "", album: "My Favorites",
+      artwork: it.cover && it.cover.startsWith("https://") ? [{ src: it.cover, sizes: "512x512" }] : [] });
+  }
+}
+
+// favorites are kept on the server after the first download, so this answers at once on every later play
+function trackUrl(i) {
+  const it = player.items[i];
+  if (!it) return Promise.reject(new Error("end"));
+  if (!player.cache[i]) player.cache[i] = post("/api/favplay", { artist: it.artist, title: it.title,
+    duration: it.duration || 0, cover: it.cover || "" }).then(r => r.url);
+  return player.cache[i];
+}
+
+async function playAt(i) {
+  const my = ++player.token, it = player.items[i];
+  if (!it) { stopPlayer(); return; }
+  player.i = i;
+  setNow(it, "Loading…");
+  try {
+    const url = await trackUrl(i);
+    if (my !== player.token) return;
+    player.au.src = url;
+    if (sheetAu) sheetAu.pause();
+    let blocked = false;
+    await player.au.play().catch(() => { blocked = true; });  // a page opened by the bot may need one tap before sound is allowed
+    setNow(it, blocked ? "Tap play to start." : "");
+    if (i + 1 < player.items.length) trackUrl(i + 1).catch(() => { delete player.cache[i + 1]; });  // get the next track ready while this one plays
+  } catch (e) {
+    delete player.cache[i];
+    if (my !== player.token) return;
+    setNow(it, "Could not load this track. Skipping…");
+    setTimeout(() => { if (my === player.token) playAt(i + 1); }, 1500);
+  }
+}
+
+// the bot's "Play all", "Shuffle" and numbered buttons open this page as /?play=favorites|shuffle[&i=N] and the queue starts by itself
+let autoplayDone = false;
+function maybeAutoplay() {
+  if (autoplayDone || !state.name || !state.favs.length) return;
+  const q = new URLSearchParams(location.search), mode = q.get("play");
+  if (!mode) return;
+  autoplayDone = true;
+  startFavorites(mode === "shuffle", Math.max(0, (parseInt(q.get("i"), 10) || 1) - 1));
+}
+
+function startFavorites(shuffle, start = 0) {
+  if (!state.favs.length) return;
+  const items = state.favs.slice();
+  if (shuffle) for (let k = items.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [items[k], items[j]] = [items[j], items[k]]; }
+  Object.assign(player, { items, cache: {} });
+  ensurePlayerBar();
+  player.au.src = SILENT; player.au.play().catch(() => {});  // the tap unlocks audio, so the next tracks can start by themselves
+  // closing the page ends playback, so ask before it closes while music is on
+  if (tg && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+  playAt(Math.min(start, items.length - 1));
+}
+
+// A closed page cannot play sound. Telegram's own player can, so hand the queue over to the chat.
+async function handOff() {
+  const e = player.els, start = Math.max(0, player.i), rest = player.items.slice(start, start + 10);
+  if (!rest.length) return;
+  e.hand.disabled = true; e.msg.textContent = "Sending to chat…";
+  try {
+    const r = await post("/api/handoff", { items: rest.map(x => ({ artist: x.artist, title: x.title })) });
+    player.au.pause();
+    e.msg.textContent = `${r.sent} ${plural(r.sent, "track", "tracks")} sent to chat. Tap the first one there and it keeps playing after you close the app.`;
+  } catch (err) { e.msg.textContent = "Could not send to chat."; }
+  e.hand.disabled = false;
+}
+
+function stopPlayer() {
+  player.token++;
+  if (player.au) { player.au.pause(); player.au.removeAttribute("src"); player.au.load(); }
+  if (player.bar) player.bar.hidden = true;
+  document.body.classList.remove("withbar");
+  if (tg && tg.disableClosingConfirmation) tg.disableClosingConfirmation();
+}
+
+// any picture -> JPEG up to `max` px on the longer side; the server crops it to a square
+function resizeImage(file, max) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => b ? resolve(b) : reject(new Error("encode")), "image/jpeg", 0.88);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("load")); };
+    img.src = url;
+  });
+}
+
+/* окно трека */
+const shade = $("div", "shade"), sheet = $("div", "sheet");
+sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); sheet.setAttribute("aria-label", "Track");
+document.body.append(shade, sheet);
+shade.onclick = closeSheet;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
+let sheetAu = null;
+function closeSheet() { shade.classList.remove("on"); sheet.classList.remove("on"); if (sheetAu) sheetAu.pause(); }
+
+// compact player for a track opened from the lists: same look as the bottom player, no browser controls
+function miniPlayer(src) {
+  const au = new Audio(); au.preload = "auto"; au.src = src;
+  const box = $("div", "mini"), disc = $("div", "disc"), mid = $("div"), main = iconButton("play", "Play", "main");
+  const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
+  const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
+  range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
+  disc.append(discSvg()); seek.append(fill, dot, range); times.append(cur, dur); mid.append(seek, times);
+  box.append(disc, mid, main);
+  const shown = () => {
+    const p = au.duration ? au.currentTime / au.duration : 0;
+    fill.style.width = dot.style.left = `${p * 100}%`;
+    range.value = Math.round(p * 1000); cur.textContent = tm(au.currentTime); dur.textContent = au.duration ? tm(au.duration) : "";
+  };
+  const on = v => { box.classList.toggle("playing", v); main.replaceChildren(icon(v ? "pause" : "play")); main.setAttribute("aria-label", v ? "Pause" : "Play"); };
+  au.addEventListener("timeupdate", shown); au.addEventListener("durationchange", shown);
+  au.addEventListener("play", () => { on(true); if (player.au && player.au !== au) player.au.pause(); });  // one sound at a time
+  au.addEventListener("pause", () => on(false)); au.addEventListener("ended", () => { au.currentTime = 0; on(false); });
+  main.onclick = () => au.paused ? au.play().catch(() => {}) : au.pause();
+  range.oninput = () => { if (au.duration) au.currentTime = au.duration * range.value / 1000; };
+  return { box, au };
+}
+
+async function openTrack(rec) {
+  sheet.replaceChildren();
+  shade.classList.add("on"); sheet.classList.add("on");
+  const head = $("div", "head"), info = $("div");
+  info.append($("div", "t", rec.title), $("div", "a", rec.artist));
+  if (rec.because) info.append($("div", "why", `Because you listen to ${rec.because}`));
+  head.append(gem(rec.cover), info);
+  const status = $("div", "status", "Finding versions…"); status.setAttribute("role", "status");
+  const list = $("ul", "vers"), slot = $("div");
+  if (sheetAu) { sheetAu.pause(); sheetAu = null; }
+  const play = $("button", "primary", "Play"), alt = $("div", "alt");
+  const save = $("button", null, "Save file"), chat = $("button", null, "Send to chat");
+  alt.append(save, chat);
+  [play, save, chat].forEach(b => b.disabled = true);
+  sheet.append(head, status, list, slot, play, alt);
+
+  let current = null, busy = false;
+  const setStatus = (t, cls) => { status.className = "status" + (cls ? " " + cls : ""); status.textContent = t; };
+  const lock = on => { busy = on; [play, save, chat].forEach(b => b.disabled = on || !current); };
+  const getFile = () => { setStatus("Downloading…"); return post("/api/fetch", { vid: current.vid, mode: "file" }); };
+  const failed = () => setStatus("Download failed. Try another version.", "bad");
+
+  const favLabel = () => isFav(rec) ? "Remove from favorites" : "Add to favorites";
+  const fav = $("button", "textbtn", favLabel());
+  sheet.append(fav);
+  fav.onclick = async () => {
+    fav.disabled = true;
+    try {
+      const r = await post("/api/favorites", { op: isFav(rec) ? "remove" : "add", artist: rec.artist, title: rec.title,
+        duration: rec.duration || 0, cover: rec.cover || "" });
+      state.favs = r.favorites; fav.textContent = favLabel(); renderFavs();
+    } catch (e) { setStatus("Could not update favorites.", "bad"); }
+    fav.disabled = false;
+  };
+
+  play.onclick = async () => {
+    if (busy) return; lock(true);
+    if (sheetAu) sheetAu.pause();  // two players must not sound at once
+    try {
+      const f = await getFile();
+      slot.replaceChildren();
+      const mp = miniPlayer(f.url); sheetAu = mp.au; slot.append(mp.box);
+      setStatus("Ready.", "ok");
+      mp.au.play().catch(() => setStatus("Press play to start.", "ok"));
+    } catch (e) { failed(); }
+    lock(false);
+  };
+  save.onclick = async () => {
+    if (busy) return; lock(true);
+    try {
+      const f = await getFile();
+      const url = location.origin + f.url, name = `${f.artist ? f.artist + " - " : ""}${f.title}.${f.ext}`;
+      if (tg && tg.isVersionAtLeast && tg.isVersionAtLeast("8.0") && tg.downloadFile) { tg.downloadFile({ url, file_name: name }); setStatus("Download started.", "ok"); }
+      else if (tg) { tg.openLink(url); setStatus("Opening file in browser.", "ok"); }
+      else { window.open(url, "_blank"); setStatus("Opening file.", "ok"); }
+    } catch (e) { failed(); }
+    lock(false);
+  };
+  chat.onclick = async () => {
+    if (busy) return; lock(true); setStatus("Sending…");
+    try { await post("/api/fetch", { vid: current.vid, mode: "chat" }); setStatus("Sent to chat.", "ok"); }
+    catch (e) { failed(); }
+    lock(false);
+  };
+
+  const select = (v, row) => {
+    current = v; slot.replaceChildren(); if (sheetAu) sheetAu.pause();
+    list.querySelectorAll(".ver").forEach(r => { r.classList.remove("sel"); r.setAttribute("aria-checked", "false"); });
+    row.classList.add("sel"); row.setAttribute("aria-checked", "true");
+    setStatus(""); lock(false);
+  };
+
+  try {
+    const r = await post("/api/resolve", { artist: rec.artist, title: rec.title, duration: rec.duration || 0 });
+    if (!r.items.length) { setStatus("No source found for this track.", "bad"); return; }
+    setStatus("");
+    list.setAttribute("role", "radiogroup");
+    r.items.forEach((v, i) => {
+      const row = $("li", "ver"), box = $("div", "vt");
+      row.tabIndex = 0; row.setAttribute("role", "radio");
+      box.append(document.createTextNode(v.title), $("span", "vs", v.artist || ""));
+      row.append($("span", "mk"), box, $("span", "vd", mmss(v.duration)));
+      row.onclick = () => { if (!busy) select(v, row); };
+      row.onkeydown = e => { if ((e.key === "Enter" || e.key === " ") && !busy) { e.preventDefault(); select(v, row); } };
+      list.append(row);
+      if (i === 0) select(v, row);
+    });
+  } catch (e) { setStatus("Could not load versions. Try again.", "bad"); }
+}
+
+function gifts(items) {
+  const strip = $("div", "gifts");
+  items.forEach(it => {
+    const b = $("button", "gift");
+    b.append(gem(it.cover), $("div", "t", it.title), $("div", "a", it.artist));
+    b.setAttribute("aria-label", `${it.title}, ${it.artist}`);
+    b.onclick = () => openTrack(it);
+    strip.append(b);
+  });
+  return strip;
+}
+
+// profile sheet: change photo and name
+function openProfile() {
+  sheet.replaceChildren();
+  shade.classList.add("on"); sheet.classList.add("on");
+  const head = $("div", "head"), info = $("div"), g = $("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
+  img.alt = ""; img.src = state.avatar || "/static/Diamond.jpg"; inner.append(img); g.append(inner);
+  info.append($("div", "t", "Profile"));
+  head.append(g, info);
+  const file = $("input"); file.type = "file"; file.accept = "image/*"; file.hidden = true;
+  const change = $("button", "textbtn", "Change photo");
+  const label = $("label", "fld-label", "Name");
+  const input = $("input", "field"); input.type = "text"; input.maxLength = 30; input.value = state.name; input.autocomplete = "off";
+  input.id = "profile-name"; label.htmlFor = input.id;
+  const status = $("div", "status"); status.setAttribute("role", "status");
+  const save = $("button", "primary", "Save");
+  sheet.append(head, change, file, label, input, status, save);
+  const setStatus = (t, cls) => { status.className = "status" + (cls ? " " + cls : ""); status.textContent = t; };
+
+  change.onclick = () => file.click();
+  file.onchange = async () => {
+    const f = file.files[0]; if (!f) return;
+    change.disabled = true; setStatus("Uploading photo…");
+    try {
+      const blob = await resizeImage(f, 384);
+      const r = await fetch("/api/avatar", { method: "POST", body: blob,
+        headers: { "X-Init-Data": tg ? tg.initData : "", "Content-Type": "image/jpeg" } });
+      if (!r.ok) throw new Error(r.status);
+      state.avatar = (await r.json()).avatar;
+      img.src = state.avatar;
+      document.querySelectorAll(".avatar img").forEach(i => { i.src = state.avatar; });
+      setStatus("Photo updated.", "ok");
+    } catch (e) { setStatus("Could not upload the photo.", "bad"); }
+    change.disabled = false; file.value = "";
+  };
+  const submit = async () => {
+    const name = input.value.trim();
+    if (!name) { setStatus("Enter a name.", "bad"); return; }
+    save.disabled = true;
+    try { await post("/api/profile", { name }); state.name = name; render(); closeSheet(); }
+    catch (e) { setStatus("Could not save. Try again.", "bad"); }
+    save.disabled = false;
+  };
+  save.onclick = submit;
+  input.onkeydown = e => { if (e.key === "Enter") submit(); };
+}
+
+// first launch: ask for a name
+function welcome() {
+  const box = $("div", "welcome"), input = $("input", "field"), status = $("div", "status"), go = $("button", "primary", "Continue");
+  input.type = "text"; input.maxLength = 30; input.autocomplete = "off"; input.placeholder = state.tgName || "Name"; input.id = "welcome-name";
+  const label = $("label", "fld-label", "What should we call you?"); label.htmlFor = input.id;
+  status.setAttribute("role", "status");
+  box.append($("h1", null, "Welcome"), label, input, status, go);
+  const submit = async () => {
+    const name = input.value.trim();
+    if (!name) { status.className = "status bad"; status.textContent = "Enter a name."; return; }
+    go.disabled = true;
+    try { await post("/api/profile", { name }); state.name = name; render(); maybeAutoplay(); }
+    catch (e) { status.className = "status bad"; status.textContent = "Could not save. Try again."; go.disabled = false; }
+  };
+  go.onclick = submit;
+  input.onkeydown = e => { if (e.key === "Enter") submit(); };
+  document.getElementById("app").replaceChildren(box);
+  input.focus();
+}
+
+function render() {
+  const root = document.getElementById("app"), d = state.d, page = document.createDocumentFragment();
+  page.append(letter(d), quickBox(), section("My Favorites", null, favBox()));
+  if (d.total) {
+    page.append(
+      section("Activity", null, daysGrid(d.days)),
+      section("Listening hours", null, clock(d.hours)));
+    if (d.top_artists.length) page.append(section("Top artists", null,
+      ranked(d.top_artists, x => x.artist, x => hoursText(x.seconds), x => tracks(x.plays))));
+    if (d.top_tracks.length) page.append(section("Top tracks", null,
+      ranked(d.top_tracks, x => x.title, x => x.artist, x => `${x.plays} ${plural(x.plays, "play", "plays")}`)));
+    page.append(section("Recent", null, recent(d.recent)));
+  }
+  root.replaceChildren(page);
+  if (state.recs.length) root.append(section(d.total ? "Recommended" : "Popular now", null, gifts(state.recs)));
+}
+
+async function main() {
+  document.body.prepend(backdrop());
+  try { state.d = await api("/api/dashboard"); }
+  catch (e) { document.getElementById("app").replaceChildren($("div", "err", "Open this page from the Telegram bot.")); return; }
+  state.name = state.d.profile.name;
+  state.tgName = state.d.profile.tg_name;
+  state.avatar = state.d.profile.avatar;
+  state.favs = state.d.favorites;
+  if (state.name) { render(); maybeAutoplay(); } else welcome();
+
+  try {
+    state.recs = (await api("/api/recs")).items;
+    if (state.name) render();  // recommendations are optional: the page is already usable without them
+  } catch (e) { /* ignore */ }
+}
+main();
+</script>
+</body>
+</html>

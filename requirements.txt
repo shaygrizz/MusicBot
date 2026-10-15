@@ -1,0 +1,9 @@
+aiogram>=3.31
+yt-dlp
+python-dotenv
+aiosqlite
+mutagen
+static-ffmpeg
+ytmusicapi
+aiohttp
+beautifulsoup4

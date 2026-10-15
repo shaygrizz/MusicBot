@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 300" role="img" aria-label="Силуэт принца на фоне луны"><title>Силуэт принца на фоне луны</title>
+  <circle cx="150" cy="118" r="96" fill="#E5608F"/>
+  <g fill="#D4B47A">
+    <circle cx="36" cy="46" r="2.2"/><circle cx="22" cy="104" r="1.6"/><circle cx="226" cy="30" r="2"/>
+    <circle cx="214" cy="236" r="1.8"/><circle cx="48" cy="188" r="1.5"/>
+  </g>
+  <!-- силуэт: профиль, собранные назад волосы, высокий воротник -->
+  <path fill="#160D24" stroke="#6B4A93" stroke-width="1.8" stroke-linejoin="round" d="
+    M 4 300 L 16 244
+    C 34 214 76 202 102 194
+    L 98 170
+    C 70 152 50 110 64 72
+    C 76 34 116 14 152 26
+    C 170 34 176 56 177 70
+    L 181 82 L 179 92 L 192 112 L 180 116
+    L 182 124 L 177 129 L 181 134 L 176 148
+    L 160 158 L 156 174
+    L 172 186 L 202 198
+    C 224 206 238 226 242 252 L 242 300 Z"/>
+  <!-- пряди и воротник тонкими линиями цвета луны -->
+  <g fill="none" stroke="#E5608F" stroke-width="2" stroke-linecap="round">
+    <path d="M 74 64 C 90 44 116 34 140 36"/>
+    <path d="M 70 92 C 80 70 104 56 132 54"/>
+    <path d="M 76 126 C 80 104 96 88 120 82"/>
+  </g>
+  <g fill="none" stroke="#D4B47A" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M 102 194 L 128 206 L 156 176"/>
+    <path d="M 128 206 L 150 232"/>
+  </g>
+  <!-- камень-брошь -->
+  <path d="M 150 222 L 160 214 L 172 214 L 182 222 L 166 244 Z" fill="#D4B47A" stroke="#0E0916" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M 150 222 L 182 222 M 160 214 L 166 222 L 172 214 M 166 222 L 166 244" fill="none" stroke="#0E0916" stroke-width="1.2"/>
+</svg>
