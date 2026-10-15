@@ -169,6 +169,22 @@ async def stats(m: Message):
     await m.answer("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
+@router.message(Command("admin"))
+async def admin(m: Message):
+    """Скрытая команда (нет в меню): открывает админку тому, чей ID указан в ADMIN_USERS."""
+    if not webapp.ADMINS:
+        await m.answer(f"Admin is not set up. Add ADMIN_USERS={m.from_user.id} to .env and restart the bot.")
+        return
+    if m.from_user.id not in webapp.ADMINS:
+        return  # остальным молчим
+    if not webapp_url:
+        await m.answer("The dashboard address is not ready yet. Try again in a minute.")
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Open admin", web_app=WebAppInfo(url=f"{webapp_url}/admin"))]])
+    await m.answer("Admin panel.", reply_markup=kb)
+
+
 FAV_BATCH = 10  # столько песен отправляем за одно нажатие «Play all»
 FAV_SHOWN = 10  # столько песен показываем в списке (остальные доступны через «Play all»)
 playing_favs: set[int] = set()  # у кого уже идёт отправка плейлиста

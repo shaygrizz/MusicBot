@@ -108,6 +108,7 @@ async def _recs(user_id: int) -> list[dict]:
 
 
 AVATAR_DIR = paths.AVATARS
+ADMINS = {int(x) for x in os.getenv("ADMIN_USERS", "").replace(" ", "").split(",") if x.strip().lstrip("-").isdigit()}
 AVATAR_MAX = 20 * 1024 * 1024
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{16,40}$")
 
@@ -190,6 +191,31 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
 
     async def index(_: web.Request):
         return web.FileResponse(INDEX, headers={"Cache-Control": "no-store"})
+
+    async def admin_page(_: web.Request):
+        return web.FileResponse(INDEX.with_name("admin.html"), headers={"Cache-Control": "no-store"})
+
+    async def admin_only(request: web.Request) -> dict:
+        """Админка: только Telegram ID из ADMIN_USERS; остальным 404, чтобы не было понятно, что она есть."""
+        try:
+            user = validate_init_data(request.headers.get("X-Init-Data", ""), bot_token)
+        except Exception:
+            raise web.HTTPNotFound()
+        if user["id"] not in ADMINS:
+            raise web.HTTPNotFound()
+        return user
+
+    async def admin_overview(request: web.Request):
+        await admin_only(request)
+        return web.json_response(await db.admin_overview())
+
+    async def admin_user(request: web.Request):
+        await admin_only(request)
+        try:
+            uid = int(request.query.get("id", ""))
+        except ValueError:
+            raise web.HTTPBadRequest(text="bad id")
+        return web.json_response(await db.admin_user(uid))
 
     async def dashboard(request: web.Request):
         user = await authed_user(request)
@@ -394,6 +420,9 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
     app.router.add_static("/static/", INDEX.parent, show_index=False)  # картинки для страницы
     app.add_routes([
         web.get("/", index),
+        web.get("/admin", admin_page),
+        web.get("/api/admin", admin_overview),
+        web.get("/api/admin/user", admin_user),
         web.get("/healthz", health),
         web.get("/api/dashboard", dashboard),
         web.post("/api/profile", set_profile),

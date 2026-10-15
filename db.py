@@ -102,6 +102,48 @@ async def set_avatar_token(user_id: int, token: str) -> None:
         await db.commit()
 
 
+async def admin_overview() -> dict:
+    """Сводка для админки: общие числа и список всех пользователей."""
+    now = int(time.time())
+    async with aiosqlite.connect(DB_PATH) as db:
+        async def one(sql, *args):
+            cur = await db.execute(sql, args)
+            return (await cur.fetchone())[0] or 0
+        totals = {
+            "users": await one("SELECT COUNT(*) FROM (SELECT user_id FROM users UNION SELECT user_id FROM plays"
+                               " UNION SELECT user_id FROM favorites)"),
+            "plays": await one("SELECT COUNT(*) FROM plays"),
+            "plays_24h": await one("SELECT COUNT(*) FROM plays WHERE ts>?", now - 86400),
+            "plays_7d": await one("SELECT COUNT(*) FROM plays WHERE ts>?", now - 7 * 86400),
+            "active_7d": await one("SELECT COUNT(DISTINCT user_id) FROM plays WHERE ts>?", now - 7 * 86400),
+            "favorites": await one("SELECT COUNT(*) FROM favorites"),
+        }
+        cur = await db.execute(
+            "SELECT i.user_id, u.name, u.display_name, u.first_seen, u.avatar_token, u.bg_token,"
+            " (SELECT COUNT(*) FROM plays p WHERE p.user_id=i.user_id),"
+            " (SELECT MAX(ts) FROM plays p WHERE p.user_id=i.user_id),"
+            " (SELECT COUNT(*) FROM favorites f WHERE f.user_id=i.user_id)"
+            " FROM (SELECT user_id FROM users UNION SELECT user_id FROM plays UNION SELECT user_id FROM favorites) i"
+            " LEFT JOIN users u ON u.user_id=i.user_id ORDER BY 8 DESC, u.first_seen DESC")
+        users = [{"id": i, "tg_name": n or "", "name": dn or "", "first_seen": fs or 0,
+                  "avatar": av or "", "bg": bg or "", "plays": pc, "last": last or 0, "favorites": fc}
+                 for i, n, dn, fs, av, bg, pc, last, fc in await cur.fetchall()]
+        cur = await db.execute(
+            "SELECT title, artist, COUNT(*) c FROM plays GROUP BY LOWER(title), LOWER(artist) ORDER BY c DESC LIMIT 10")
+        top = [{"title": t or "", "artist": a or "", "plays": c} for t, a, c in await cur.fetchall()]
+    return {"totals": totals, "users": users, "top_tracks": top}
+
+
+async def admin_user(user_id: int) -> dict:
+    """Подробности одного пользователя: последние прослушивания и избранное."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT title, artist, source, kind, ts FROM plays WHERE user_id=? ORDER BY id DESC LIMIT 50", (user_id,))
+        plays = [{"title": t or "", "artist": a or "", "source": s or "", "kind": k or "", "ts": ts or 0}
+                 for t, a, s, k, ts in await cur.fetchall()]
+    return {"plays": plays, "favorites": await fav_list(user_id, 100)}
+
+
 async def fav_list(user_id: int, limit: int = 200) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
