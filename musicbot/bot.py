@@ -576,7 +576,11 @@ async def on_download(cb: CallbackQuery, bot: Bot):
                 await bot.send_video(cb.message.chat.id, file_id, duration=duration)
         else:
             if kind == "audio" and url in prefetch:
-                d = await prefetch.pop(url)[1]  # уже скачано или досасывается
+                try:
+                    d = await prefetch.pop(url)[1]  # уже скачано или досасывается
+                except Exception as e:  # заранее не вышло — пробуем ещё раз, сейчас
+                    logging.info("предзагрузка не удалась (%s), качаем заново: %s", url[:80], str(e)[:120])
+                    d = await search.fetch_audio(url, meta)
             elif kind == "audio":
                 d = await search.fetch_audio(url, meta)  # при сбое сам пробует другие версии и запасные источники
             else:

@@ -79,16 +79,20 @@ async def _to_db(key: str, out: Outcome) -> None:
         logging.info("кэш поиска не сохранён: %s", str(e)[:80])
 
 
+PARTIAL_TTL = 600  # неполная выдача живёт 10 минут и только в памяти: источник мог просто запнуться
+_background: set[asyncio.Task] = set()
+
+
 def _remember(key: tuple, out: Outcome) -> None:
     if len(_search_cache) >= MEMORY_ITEMS:
         _search_cache.pop(next(iter(_search_cache)))
-    _search_cache[key] = (time.time(), out)
+    _search_cache[key] = (time.time() + (PARTIAL_TTL if out.partial else CACHE_TTL), out)
 
 
 async def search(query: str, limit: int = 8, deep: bool = False, fast_only: bool = False) -> Outcome:
     key = (clean_query(query).lower() or query.strip().lower(), limit, deep, fast_only)
     hit = _search_cache.get(key)
-    if hit and time.time() - hit[0] < CACHE_TTL:
+    if hit and time.time() < hit[0]:
         return hit[1]
     db_key = "|".join(map(str, key))
     stored = await _from_db(db_key)
@@ -104,7 +108,10 @@ async def search(query: str, limit: int = 8, deep: bool = False, fast_only: bool
     out = await asyncio.shield(task)
     if out.results:
         _remember(key, out)
-        await _to_db(db_key, out)
+        if not out.partial:  # запись в базу — в фоне, ответ пользователю её не ждёт
+            t = asyncio.create_task(_to_db(db_key, out))
+            _background.add(t)
+            t.add_done_callback(_background.discard)
     return out
 
 
@@ -193,6 +200,8 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
             early = True
             break
     late = [k for k, t in fast.items() if not t.done()]
+    # YouTube Music не успел (а не «точный трек нашёлся раньше») — выдача могла выйти беднее обычной
+    missed_main = not early and any(k in ("top", "ytm") for k in late)
     for t in group:
         if not t.done():
             t.cancel()
@@ -287,4 +296,4 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
             for i, c in enumerate(clean[:3])
         ]
         hint = f"{canons[0].artist} — {canons[0].title}"
-    return Outcome(results, hint, q)
+    return Outcome(results, hint, q, partial=bool(hint) or missed_main)

@@ -686,15 +686,25 @@ async function openTrack(rec) {
       slot.replaceChildren();
       const mp = miniPlayer(current.stream), v = current; sheetAu = mp.au; slot.append(mp.box);
       setStatus("Loading…");
-      mp.au.addEventListener("playing", () => setStatus(""), { once: true });
-      mp.au.addEventListener("error", async () => {
-        if (current !== v) return;
+      let started = false, fellBack = false, blocked = false;
+      const fallback = async () => {
+        if (started || fellBack || blocked || current !== v || sheetAu !== mp.au) return;
+        fellBack = true; clearTimeout(stall);
         lock(true);
         try { const f = await getFile(); mp.au.src = f.url; setStatus("Ready.", "ok"); mp.au.play().catch(() => setStatus("Press play to start.", "ok")); }
         catch (e) { failed(); }
         lock(false);
-      }, { once: true });
-      mp.au.play().catch(e => { if (e && e.name === "NotAllowedError") setStatus("Press play to start.", "ok"); });
+      };
+      // some WebViews neither play nor report an error on a stream; do not leave "Loading…" up forever
+      let stall = setTimeout(fallback, 7000);
+      mp.au.addEventListener("play", () => {  // the user pressed play after autoplay was blocked: watch the stream again
+        if (blocked && !started) { blocked = false; setStatus("Loading…"); stall = setTimeout(fallback, 7000); }
+      });
+      mp.au.addEventListener("playing", () => { started = true; clearTimeout(stall); setStatus(""); }, { once: true });
+      mp.au.addEventListener("error", fallback, { once: true });
+      mp.au.play().catch(e => {
+        if (e && e.name === "NotAllowedError") { blocked = true; clearTimeout(stall); setStatus("Press play to start.", "ok"); }
+      });
       return;
     }
     lock(true);

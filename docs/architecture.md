@@ -51,12 +51,15 @@ transfer itself (parallel ranges do not help, the limit is bandwidth). Everythin
 
 | What | How |
 |---|---|
-| repeated search | in memory, then SQLite (`search_cache`) after a restart; identical searches running at once share one call |
+| repeated search | in memory, then SQLite (`search_cache`) after a restart; identical searches running at once share one call; a partial answer (YouTube Music timed out, catalog-only fallback) is kept 10 minutes in memory only |
 | first search | shared keep-alive HTTP session (`net.py`), sources kept warm (`search/warm.py`); answers as soon as the fast sources found the exact track instead of waiting for every deadline |
-| repeated download | shared disk cache (`audiocache.py`, `DATA_DIR/audio`), keyed by the source link and the catalog link, for every user |
+| repeated download | shared disk cache (`audiocache.py`, `DATA_DIR/audio`, `AUDIO_CACHE_MB`), keyed by the source link and the catalog link (hard links, one file on disk), for every user |
 | first click in the bot | the top result is downloaded right after the search, catalog songs included |
-| Mini App sheet | versions come from the fast sources only; the top version starts downloading when the sheet opens; **Play** streams through `/api/stream/{tok}` (a proxy with `Range` support, because the YouTube link is bound to the server's IP) and falls back to the whole file if the WebView cannot play the stream |
+| Mini App sheet | versions come from the fast sources only; opening the sheet extracts the audio link of the top versions (no full download: it would compete with the stream for bandwidth); **Play** streams through `/api/stream/{tok}`, a proxy with `Range` support (the YouTube link is bound to the server's IP); a stream that ran from the first to the last byte is remuxed, length-checked and stored in the shared cache, so the song is fetched from YouTube once; if the WebView reports an error or does not start within 7 s, the page falls back to the whole file |
 | download pipeline | the cover downloads in parallel with the audio; the length check reads the header with `mutagen` and runs `ffprobe` only as a fallback |
+
+YouTube link extractions are limited to `YT_EXTRACT_PARALLEL` (3) at once: warming and prefetching request links in bursts, and
+too many raise the risk of the "not a bot" IP block.
 
 A stream that started through the proxy keeps using it: the cached file is remuxed and its bytes differ, so a seek
 must not switch sources mid-play.

@@ -2,7 +2,7 @@
 
 from .chain import download, init
 from .fallbacks import hitmo_download
-from .media import probe_duration
+from .media import fetch_thumb, probe_duration
 from .models import MAX_SIZE, Downloaded, SearchResult
 from .urls import extract_url, resolve_short
 from .youtube import TOO_BIG, forget, stream_source, warm
@@ -15,6 +15,7 @@ __all__ = [
     "TOO_BIG",
     "download",
     "extract_url",
+    "fetch_thumb",
     "forget",
     "get_ytm",
     "hitmo_download",

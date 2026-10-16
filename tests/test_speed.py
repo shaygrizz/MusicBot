@@ -1,6 +1,9 @@
 """Кэши и общие загрузки, на которых держится скорость: повторное не качается и не ищется второй раз."""
 
 import asyncio
+import os
+import time
+from pathlib import Path
 
 from musicbot import audiocache
 from musicbot.download import Downloaded
@@ -84,6 +87,7 @@ async def test_repeated_search_is_answered_from_the_database_after_restart(monke
     monkeypatch.setattr(engine, "_search_impl", impl)
     monkeypatch.setattr(engine, "_search_cache", {})
     await engine.search("artist song")
+    await asyncio.sleep(0)  # запись в базу идёт в фоне — даём ей завершиться
     engine._search_cache.clear()  # «перезапуск»: память пуста, база осталась
     again = await engine.search("artist song")
     assert calls == ["artist song"]
@@ -134,3 +138,69 @@ def test_early_exit_needs_an_exact_track_near_the_top(result):
     assert engine._good_enough([exact, *others[:2]])
     assert not engine._good_enough(others)  # без точного трека ждём медленные источники
     assert not engine._good_enough([exact])  # слишком мало, чтобы выбирать
+
+
+async def test_partial_search_is_not_pinned_in_the_database(monkeypatch, result):
+    stored = {}
+
+    async def nothing(*args, **kwargs):
+        return None
+
+    async def set_search(key, data, keep=5000):
+        stored[key] = data
+
+    async def impl(query, limit, deep, fast_only=False):
+        # YouTube Music не успел: остался только запасной вариант из каталога
+        return Outcome([result("Song", "Artist", 200, url="lazy://x")], "Artist — Song", query, partial=True)
+
+    monkeypatch.setattr(engine.db, "get_search", nothing)
+    monkeypatch.setattr(engine.db, "set_search", set_search)
+    monkeypatch.setattr(engine, "_search_impl", impl)
+    monkeypatch.setattr(engine, "_search_cache", {})
+    await engine.search("artist song")
+    await asyncio.sleep(0)
+    assert stored == {}
+    expires = next(iter(engine._search_cache.values()))[0]
+    assert expires - time.time() <= engine.PARTIAL_TTL  # в памяти — ненадолго
+
+
+def test_second_key_of_a_song_takes_no_extra_disk_space(tmp_path):
+    d = downloaded(tmp_path)
+    audiocache.put(["lazy://a", "https://www.youtube.com/watch?v=a"], d)
+    a, b = audiocache.path_for("lazy://a"), audiocache.path_for("https://www.youtube.com/watch?v=a")
+    assert a.read_bytes() == b.read_bytes() == b"audio-a"
+    assert a.stat().st_ino == b.stat().st_ino  # жёсткая ссылка, а не вторая копия
+
+
+def test_cache_eviction_removes_the_oldest_songs_first(monkeypatch, tmp_path):
+    for i in range(5):
+        audiocache.put([f"k{i}", f"alias{i}"], downloaded(tmp_path, f"song{i}"))  # 11 байт каждая
+        os.utime(audiocache.path_for(f"k{i}"), (1000 + i, 1000 + i))  # явный порядок: k0 самая старая
+    monkeypatch.setattr(audiocache, "MAX_BYTES", 25)
+    audiocache._prune()
+    left = [i for i in range(5) if audiocache.path_for(f"k{i}")]
+    assert left == [3, 4]  # 22 байта <= 90% от 25: место считается один раз на файл, а не на каждый ключ
+    assert all(bool(audiocache.path_for(f"k{i}")) == bool(audiocache.path_for(f"alias{i}")) for i in range(5))
+
+
+def test_streamed_song_of_the_wrong_length_is_not_cached(monkeypatch, result, tmp_path):
+    monkeypatch.setattr(webapp.paths, "DOWNLOAD_DIR", tmp_path / "downloads")
+    monkeypatch.setattr(webapp.subprocess, "run", lambda cmd, **kw: Path(cmd[-1]).write_bytes(b"remuxed"))
+    monkeypatch.setattr(webapp.download, "probe_duration", lambda p: 90)  # пришёл отрывок вместо песни
+    raw = tmp_path / "raw.m4a"
+    raw.write_bytes(b"raw")
+    r = result("Song", "Artist", 200, url="https://www.youtube.com/watch?v=abcdefghijk")
+    webapp._finish_streamed(raw, r)
+    assert audiocache.path_for(r.url) is None and not raw.exists()
+
+
+def test_streamed_song_goes_to_the_cache(monkeypatch, result, tmp_path):
+    monkeypatch.setattr(webapp.paths, "DOWNLOAD_DIR", tmp_path / "downloads")
+    monkeypatch.setattr(webapp.subprocess, "run", lambda cmd, **kw: Path(cmd[-1]).write_bytes(b"remuxed"))
+    monkeypatch.setattr(webapp.download, "probe_duration", lambda p: 201)
+    raw = tmp_path / "raw.m4a"
+    raw.write_bytes(b"raw")
+    r = result("Song", "Artist", 200, url="https://www.youtube.com/watch?v=abcdefghijk")
+    webapp._finish_streamed(raw, r)
+    assert audiocache.path_for(r.url).read_bytes() == b"remuxed"
+    assert not raw.exists() and not list((tmp_path / "downloads").iterdir())  # временные файлы убраны

@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -21,6 +22,7 @@ from aiohttp import ClientSession, ClientTimeout, web
 from .. import audiocache, db, download, favcache, net, paths, search
 from .. import favorites as favlib  # внутри make_app есть обработчик с именем favorites
 from ..download import Downloaded, SearchResult
+from ..search import fetch as fetch_mod
 
 INDEX = Path(__file__).parent / "static" / "index.html"
 INITDATA_MAX_AGE = 24 * 3600  # старше суток подпись не принимаем
@@ -224,6 +226,46 @@ async def _prefetch_version(uid: int, vid: str, r: SearchResult) -> None:
         await _get_file(uid, vid, r)
     except Exception as e:
         logging.info("webapp: предзагрузка версии не удалась %s: %s", r.url, str(e)[:120])
+
+
+def _is_youtube(url: str) -> bool:
+    return "youtube.com" in url or "youtu.be" in url
+
+
+def _finish_streamed(raw: Path, r: SearchResult) -> None:
+    """Песня, целиком прошедшая через поток: перепаковываем как обычную загрузку, проверяем длину и кладём в кэш."""
+    workdir = paths.DOWNLOAD_DIR / f"st-{secrets.token_hex(5)}"
+    workdir.mkdir(parents=True)
+    try:
+        out = workdir / f"{r.id or 'track'}.m4a"
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(raw), "-c", "copy", "-movflags", "+faststart", str(out)]
+        subprocess.run(cmd, check=True, timeout=60)
+        real = download.probe_duration(out)
+        if r.duration and real and abs(real - r.duration) > fetch_mod.DURATION_GUARD:
+            logging.info("webapp: поток не сохранён — длина %s с вместо %s с (%s)", int(real), r.duration, r.url)
+            return
+        thumb = download.fetch_thumb(r.thumb_url, workdir / "cover.jpg") if r.thumb_url else None
+        d = Downloaded(
+            path=out,
+            thumb=thumb,
+            title=r.title,
+            artist=r.artist,
+            duration=int(real or r.duration),
+            source="Youtube",
+            workdir=workdir,
+        )
+        audiocache.put([r.url], d)
+    finally:
+        raw.unlink(missing_ok=True)
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+async def _keep_streamed(raw: Path, r: SearchResult) -> None:
+    try:
+        await asyncio.to_thread(_finish_streamed, raw, r)
+    except Exception as e:
+        logging.info("webapp: поток не сохранён в кэш %s: %s", r.url, str(e)[:120])
+        raw.unlink(missing_ok=True)
 
 
 _client: "ClientSession | None" = None
@@ -472,7 +514,12 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             )
         if items:
             top = versions[items[0]["vid"]][2]
-            favcache.spawn(_prefetch_version(user["id"], items[0]["vid"], top))
+            if _is_youtube(top.url):
+                # YouTube играет потоком и сам попадает в кэш по ходу: заранее нужна только ссылка на звук,
+                # а полная загрузка параллельно с потоком делила бы канал и качала песню дважды
+                favcache.spawn(download.warm(top.url))
+            else:
+                favcache.spawn(_prefetch_version(user["id"], items[0]["vid"], top))
         for it in items[1:3]:  # остальным версиям заранее достаём ссылку на звук: переключение тоже будет быстрым
             favcache.spawn(download.warm(versions[it["vid"]][2].url))
         return web.json_response({"items": items})
@@ -501,10 +548,10 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
                 return web.FileResponse(
                     path, headers={"Content-Type": favcache.media_type(path), "Cache-Control": "no-store"}
                 )
-        if "youtube.com" in r.url or "youtu.be" in r.url:
+        if _is_youtube(r.url):
             try:
                 proxied.add(tok)
-                return await _proxy_youtube(request, r.url)
+                return await _proxy_youtube(request, r)
             except web.HTTPException:
                 raise
             except Exception as e:
@@ -518,7 +565,8 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             d.path, headers={"Content-Type": favcache.media_type(d.path), "Cache-Control": "no-store"}
         )
 
-    async def _proxy_youtube(request: web.Request, url: str) -> web.StreamResponse:
+    async def _proxy_youtube(request: web.Request, r: SearchResult) -> web.StreamResponse:
+        url = r.url
         for attempt in range(2):
             src = await asyncio.to_thread(download.stream_source, url)
             if src is None:
@@ -529,6 +577,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             headers = {**headers, "Range": asked or "bytes=0-"}
             up = await _http().get(direct, headers=headers)
             if up.status in (403, 410) and attempt == 0:
+                logging.info("webapp: ссылка на звук не открылась (%s), извлекаем заново: %s", up.status, url)
                 up.release()
                 download.forget(url)  # ссылка протухла — извлекаем заново
                 continue
@@ -545,11 +594,28 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
                 if asked and "Content-Range" in up.headers:
                     resp.headers["Content-Range"] = up.headers["Content-Range"]
                 await resp.prepare(request)
+                # поток с начала до конца — это и есть вся песня: сохраняем её в кэш, второй раз качать не придётся
+                total = int(up.headers.get("Content-Length") or 0)
+                whole = (not asked or asked.strip() == "bytes=0-") and ctype == "audio/mp4" and total > 0
+                tee = paths.DOWNLOAD_DIR / f"stream-{secrets.token_hex(6)}.raw.m4a" if whole else None
+                if tee:
+                    tee.parent.mkdir(parents=True, exist_ok=True)
+                got, sink = 0, (tee.open("wb") if tee else None)
                 try:
                     async for chunk in up.content.iter_chunked(64 * 1024):
+                        if sink:
+                            sink.write(chunk)
+                        got += len(chunk)
                         await resp.write(chunk)
-                except (ConnectionResetError, asyncio.CancelledError):
+                except ConnectionResetError:
                     pass  # плеер сам закрыл соединение (перемотка, пауза, закрытая шторка)
+                finally:
+                    if sink:
+                        sink.close()
+                        if got == total:
+                            favcache.spawn(_keep_streamed(tee, r))
+                        else:
+                            tee.unlink(missing_ok=True)
                 return resp
             finally:
                 up.release()

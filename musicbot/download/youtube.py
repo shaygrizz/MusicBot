@@ -3,6 +3,7 @@
 import asyncio
 import os
 import subprocess
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -45,13 +46,21 @@ _info_cache: dict[str, tuple[float, dict]] = {}
 INFO_TTL = 3 * 3600
 
 
+# прогрев и предзагрузка запрашивают ссылки пачками; без ограничения YouTube быстрее решит, что мы бот, и закроет IP
+_extract_slots = threading.BoundedSemaphore(int(os.getenv("YT_EXTRACT_PARALLEL", "3")))
+
+
 def _yt_info(url: str) -> dict:
     hit = _info_cache.get(url)
     if hit and time.time() - hit[0] < INFO_TTL:
         return hit[1]
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 12, "format": YT_AUDIO_FORMAT}
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    with _extract_slots:
+        hit = _info_cache.get(url)  # пока ждали очереди, ссылку мог достать другой поток
+        if hit and time.time() - hit[0] < INFO_TTL:
+            return hit[1]
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
     if "entries" in info:
         info = info["entries"][0]
     if len(_info_cache) > 300:
