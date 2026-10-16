@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
@@ -71,8 +72,17 @@ def clean_query(q: str) -> str:
     return re.sub(r"\s+", " ", q).strip(" -–—.,!?")
 
 
+def _fold(s: str) -> str:
+    """«São Paulo» -> «Sao Paulo»: убираем диакритику у латиницы (у кириллицы «й», «ё» не трогаем)."""
+    out = []
+    for ch in s:
+        d = unicodedata.normalize("NFD", ch)
+        out.append(d[0] if len(d) > 1 and d[0].isascii() else ch)
+    return "".join(out)
+
+
 def _norm(s: str) -> str:
-    s = re.sub(r"\(.*?\)|\[.*?\]", " ", s.lower())
+    s = re.sub(r"\(.*?\)|\[.*?\]", " ", _fold(s.lower()))
     return re.sub(r"[\W_]+", "", s)
 
 
@@ -108,6 +118,10 @@ ARTIST_WORDS_RE = re.compile(
     r"песни|песня|лучшее|лучшие|хиты|группа|музыка|треки|дискография)\b", re.I)
 
 
+SONG_OVER_ARTIST_FANS = 200_000  # у исполнителя с таким именем меньше поклонников, чем у одноимённой песни
+SONG_MIN_RANK = 500_000  # и рейтинг песни в Deezer не ниже этого
+
+
 def _deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
     """Если запрос — это имя исполнителя, возвращает его самые популярные песни (и только его).
     «queen» -> Queen: Under Pressure, Bohemian Rhapsody…; «queen under pressure» сюда не попадает."""
@@ -115,11 +129,23 @@ def _deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
     if len(name_q) < 2:
         return None
     plain = ARTIST_WORDS_RE.sub(" ", q).strip()  # без слов «songs», «best», «песни» — иначе имя не найдётся
-    data = _get_json("https://api.deezer.com/search/artist?limit=10&q=" + urllib.parse.quote(plain))
+    enc = urllib.parse.quote(plain)
+    with ThreadPoolExecutor(2) as ex:  # поиск исполнителя и самого популярного трека — одновременно, чтобы не ждать вдвое дольше
+        f_artist = ex.submit(_get_json, "https://api.deezer.com/search/artist?limit=10&q=" + enc)
+        f_track = ex.submit(_get_json, "https://api.deezer.com/search?limit=1&q=" + enc)
+        data = f_artist.result()
+        try:
+            tracks = f_track.result().get("data", [])
+        except Exception:
+            tracks = []
     exact = [a for a in data.get("data", []) if _norm(a["name"]) == name_q]
     if not exact:
         return None
     artist = max(exact, key=lambda a: a.get("nb_fan") or 0)  # исполнителей с одним именем много — берём самого известного
+    if (artist.get("nb_fan") or 0) < SONG_OVER_ARTIST_FANS:
+        # «believer», «blinding lights»: у малоизвестной группы то же имя, что у знаменитой песни — ищут песню
+        if tracks and _norm(tracks[0]["title"]) == name_q and (tracks[0].get("rank") or 0) >= SONG_MIN_RANK:
+            return None
     top = _get_json(f"https://api.deezer.com/artist/{artist['id']}/top?limit={n * 3}").get("data", [])
     me = _norm(artist["name"])
     out: list[Canon] = []
@@ -401,7 +427,11 @@ def _canon_relevant(c: Canon, tokens: list[str]) -> bool:
     if not rest:
         return True  # в запросе только исполнитель
     meaningful = [t for t in rest if t not in STOPWORDS] or rest  # «the», «of», «you» не считаем
-    hit = sum(1 for t in meaningful if t in title_n)
+    words = [_norm(w) for w in re.findall(r"\w+", c.title)]
+
+    def in_title(t: str) -> bool:  # «paolo» ~ «paulo»: опечатка в одну-две буквы не мешает
+        return t in title_n or (len(t) >= 4 and any(SequenceMatcher(None, t, w).ratio() >= 0.8 for w in words if w))
+    hit = sum(1 for t in meaningful if in_title(t))
     return hit / len(meaningful) >= 0.7
 
 
@@ -427,12 +457,108 @@ def _verify(r: SearchResult, canons: list[Canon]) -> Canon | None:
     return None
 
 
+# ---------- «точный трек»: оригинал без изменений ----------
+
+_PAREN_RE = re.compile(r"[(\[]([^)\]]*)[)\]]")
+# пометки в скобках, которые трек не меняют (feat., official audio, remastered, from "…", год)
+_SAFE_PAREN_RE = re.compile(
+    r"^\s*(feat\b|ft\b|featuring|with\b|prod\b|official|audio|video|lyric|remaster|from\b|visuali[sz]er|"
+    r"hd\b|hq\b|4k|explicit|clean|music|topic|\d{4}\b)", re.I)
+_NOISE_TAIL_RE = re.compile(r"\s[-–|]\s*(official|audio|video|lyrics?|music video|hd|hq|4k|visuali[sz]er|topic)\b.*$", re.I)
+_FEAT_SPLIT_RE = re.compile(r"\s(?:feat\.?|ft\.?|featuring|with)\s", re.I)
+_ARTIST_SPLIT_RE = re.compile(r"\s*(?:,|&|\bfeat\.?|\bft\.?|\bx\b|\band\b|\bwith\b)\s*", re.I)
+EXACT_DURATION = 8  # секунд: во столько длительность точного трека может отличаться от каталожной
+
+
+def _main_artist(artist: str) -> str:
+    return _ARTIST_SPLIT_RE.split(artist.strip())[0].strip()
+
+
+def _core(title: str, artist: str = "") -> tuple[str, list[str]]:
+    """Название без «Artist - », feat. и пометок + список пометок из скобок."""
+    t = _NOISE_TAIL_RE.sub("", title)
+    if artist:
+        t = re.sub(rf"^\s*{re.escape(artist)}\b[^-–:]*?\s*[-–:]\s*", "", t, flags=re.I)
+    quals = _PAREN_RE.findall(t)
+    t = _FEAT_SPLIT_RE.split(_PAREN_RE.sub(" ", t))[0]
+    return _norm(t), quals
+
+
+def _artist_names(artist: str) -> set[str]:
+    out = set()
+    for part in _ARTIST_SPLIT_RE.split(artist):
+        n = _norm(re.sub(r"\b(topic|vevo|official)\b", " ", part, flags=re.I))
+        if n:
+            out.add(n)
+            out.add(n.removeprefix("the"))
+    return out
+
+
+def _clean_canon(c: Canon) -> bool:
+    """Запись каталога без пометок (Single Version, Live, Acapella…): только такие считаем эталоном."""
+    return not BAD_VERSION_RE.search(c.title) and all(_SAFE_PAREN_RE.match(q) for q in _core(c.title)[1])
+
+
+def _is_exact(r: SearchResult, c: Canon) -> bool:
+    """Это тот самый трек из каталога: название и исполнитель те же, без ремикса/live/кавера/версий,
+    длительность как у оригинала (не отрывок и не удлинённая версия)."""
+    main = _main_artist(c.artist)
+    ct, _ = _core(c.title)
+    rt, quals = _core(r.title, main)
+    if not ct or rt != ct:
+        return False
+    if not all(_SAFE_PAREN_RE.match(q) for q in quals):
+        return False
+    if BAD_VERSION_RE.search(r.title):
+        return False
+    want = _artist_names(main)
+    have = _artist_names(r.artist) if r.artist else set()
+    prefixed = bool(re.match(rf"^\s*{re.escape(main)}\b", r.title, re.I))  # «Artist - Title» в названии ролика
+    if not (want & have or prefixed):
+        return False  # «The Retro Weeknd» — не The Weeknd
+    if c.duration and r.duration:
+        return abs(r.duration - c.duration) <= EXACT_DURATION
+    if c.duration and not r.duration:
+        return r.source in ("ytm", "top")  # у официальных «песен» YouTube Music длительность иногда не отдаётся
+    return True
+
+
+def _mark_exact(r: SearchResult, refs: list[Canon]) -> None:
+    for c in refs:
+        if _is_exact(r, c):
+            r.exact = True
+            if not r.duration:
+                r.duration = c.duration  # длительность неизвестна — берём каталожную, чтобы скачивание могло отбраковать обрезанный файл
+            return
+    r.exact = False
+
+
+def _exact_refs(canons: list[Canon], query: str) -> list[Canon]:
+    """Эталон для проверки «точности»: самая популярная чистая запись каталога (каталог отдаёт её первой)
+    и её дубли с той же длительностью. Другие песни с таким названием и версии другой длины эталоном не служат."""
+    clean = [c for c in canons if _clean_canon(c)]
+    if not clean:
+        return []
+    q = _norm(query)
+    # исполнитель назван, если его имя есть в запросе вместе с другими словами (запрос «starboy» — это название песни,
+    # а не исполнитель Starboy)
+    named = [c for c in clean if any(n and n in q and len(q) > len(n) + 1 for n in _artist_names(_main_artist(c.artist)))]
+    pool = named or clean
+    top = pool[0]
+    who = _artist_names(_main_artist(top.artist))
+    return [c for c in pool
+            if _core(c.title)[0] == _core(top.title)[0] and _artist_names(_main_artist(c.artist)) & who
+            and (not top.duration or not c.duration or abs(c.duration - top.duration) <= EXACT_DURATION)]
+
+
 def _rank(r: SearchResult, query: str) -> int:
+    if r.exact:  # точные треки всегда впереди: внутри — по источнику (официальные «песни» YouTube Music первыми)
+        return PRIORITY[r.source or "yt"]
     if BAD_VERSION_RE.search(r.title) and not BAD_VERSION_RE.search(query):
-        return PRIORITY["bad"]  # каверы, ремиксы, slowed — только если их просили
+        return PRIORITY["bad"] + 10  # каверы, ремиксы, slowed — только если их просили
     if r.verified:
-        return PRIORITY["verified"]
-    return PRIORITY[r.source or "yt"]
+        return PRIORITY["verified"] + 10
+    return PRIORITY[r.source or "yt"] + 10
 
 
 def _relevant(r: SearchResult, tokens: list[str], strict: bool,
@@ -472,6 +598,9 @@ def _merge(pool: list[SearchResult], canons: list[Canon], query: str, limit: int
             r.title, r.artist = c.title, c.artist
             if c.thumb and not r.thumb_url:
                 r.thumb_url = c.thumb
+    refs = _exact_refs(canons, query)
+    for r in pool:
+        _mark_exact(r, refs)
     tokens = _tokens(query)
     must, ref_dur = [], 0
     if canons and strict:  # по лучшей записи каталога понимаем, какие слова — название, и сколько оно длится
@@ -669,7 +798,7 @@ def version_label(title: str) -> str:
     return "Original"
 
 
-async def versions(artist: str, title: str, limit: int = 12, per_kind: int = 2) -> Outcome:
+async def versions(artist: str, title: str, duration: int = 0, limit: int = 12, per_kind: int = 2) -> Outcome:
     """Оригинал и его версии: ремиксы, live, slowed, sped up, acoustic, instrumental, каверы.
     Для каждого типа берём до per_kind лучших, чтобы список был разнообразным, а не из одних ремиксов."""
     base = f"{artist} {title}".strip()
@@ -693,6 +822,13 @@ async def versions(artist: str, title: str, limit: int = 12, per_kind: int = 2) 
             return False  # песня с таким же названием, но другого исполнителя
         return not r.duration or 45 <= r.duration <= 900
 
+    refs = [Canon(artist, title, duration)]
+    try:  # точная длительность и написание — из каталога
+        dz = await _safe(_deezer, base, 6)
+        refs = [c for c in dz if _clean_canon(c) and _core(c.title)[0] == _core(title)[0]
+                and _artist_names(_main_artist(artist)) & _artist_names(_main_artist(c.artist))] or refs
+    except Exception:
+        pass
     groups: dict[str, list[SearchResult]] = {k: [] for k in ["Original", *KIND_ORDER]}
     seen: set[str] = set()
     kept: list[SearchResult] = []
@@ -701,10 +837,14 @@ async def versions(artist: str, title: str, limit: int = 12, per_kind: int = 2) 
             continue
         seen.add(r.url)
         kept.append(r)
+        _mark_exact(r, refs)
         r.label = version_label(r.title)
         groups[r.label].append(r)
 
-    picked = groups["Original"][:2]
+    originals = groups["Original"]
+    exact = [r for r in originals if r.exact]
+    # оригиналом считаем только точный трек; точных нет (каталог недоступен) — прежний список
+    picked = sorted(exact, key=lambda r: PRIORITY.get(r.source, 4))[:2] or originals[:2]
     for kind in KIND_ORDER:
         picked += sorted(groups[kind], key=lambda r: PRIORITY.get(r.source, 4))[:per_kind]
     return Outcome(picked[:limit], "", base, kind="versions")

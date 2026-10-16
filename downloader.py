@@ -40,6 +40,7 @@ class SearchResult:
     source: str = ""  # ytm / ytmv / yt / sc — откуда результат
     verified: bool = False  # совпал с записью каталога (Deezer/iTunes)
     label: str = ""  # тип версии: Original, Remix, Live, Slowed…
+    exact: bool = False  # точный трек: то же название и исполнитель без пометок, длительность как в каталоге
 
 
 @dataclass
@@ -337,7 +338,8 @@ def _ytdlp_run(url: str, kind: str, workdir: Path, meta: SearchResult | None,
 MAX_LEADING_SILENCE = 12  # секунд тишины в начале, после которых файл считаем браком
 BAD_VERSION_RE = re.compile(
     r"\b(skip\w*|slowed|sped\s*up|speed\s*up|nightcore|reverb|8d|bass\s*boost(?:ed)?|karaoke|"
-    r"instrumental|covers?|live|remix|mashup|loop|hours?|preview|snippet|"
+    r"instrumental|covers?|live|remix|mashup|loop|hours?|preview|snippet|a\s*cappella|acapella|fingerstyle|"
+    r"lullaby|arrangement|choreography|tutorial|reaction|parody|piano\s+(?:version|cover|ver\.?)|"
     r"кавер\w*|ремикс\w*|караоке|замедл\w*|ускор\w*)\b",
     re.I,
 )
