@@ -444,3 +444,40 @@ async def test_mix_cut_from_spotify_is_found_even_if_its_length_differs(monkeypa
     d = await fetch.fetch_audio("lazy://m", meta)
     assert asked == ["https://www.youtube.com/watch?v=m"]
     assert d.title == "Monument (feat. Robyn) [True Electric] - Mixed"  # имя — как в плейлисте
+
+
+async def test_song_with_guests_is_searched_by_the_main_artist_first(monkeypatch, result):
+    """С полным списком исполнителей YouTube Music не показывает альбомную версию «Clint Eastwood»."""
+    from musicbot.search import fetch
+    from musicbot.search.models import Outcome
+
+    asked = []
+
+    async def fake_search(query, limit=8, deep=False, fast_only=False):
+        asked.append(query)
+        if query == "Gorillaz Clint Eastwood":
+            return Outcome([result("Clint Eastwood", "Gorillaz, Del The Funky Homosapien", 341, url="https://y/album")])
+        return Outcome([result("Clint Eastwood", "Gorillaz", 267, url="https://y/edit")])  # радиоверсия короче
+
+    monkeypatch.setattr(fetch, "search", fake_search)
+    found = await fetch.resolve(result("Clint Eastwood", "Gorillaz, Del The Funky Homosapien", 340))
+    assert [r.url for r in found] == ["https://y/album"]
+    assert asked[0] == "Gorillaz Clint Eastwood"
+
+
+async def test_full_artist_list_is_tried_when_the_main_artist_finds_nothing(monkeypatch, result):
+    from musicbot.search import fetch
+    from musicbot.search.models import Outcome
+
+    asked = []
+
+    async def fake_search(query, limit=8, deep=False, fast_only=False):
+        asked.append(query)
+        if "Robyn" in query:
+            return Outcome([result("Monument", "Röyksopp & Robyn", 415, url="https://y/m")])
+        return Outcome([result("Other", "Röyksopp", 300, url="https://y/o")])
+
+    monkeypatch.setattr(fetch, "search", fake_search)
+    found = await fetch.resolve(result("Monument", "Röyksopp, Robyn", 415))
+    assert [r.url for r in found] == ["https://y/m"]
+    assert asked == ["Röyksopp Monument", "Röyksopp, Robyn Monument"]

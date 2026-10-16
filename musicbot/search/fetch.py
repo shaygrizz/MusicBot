@@ -23,10 +23,6 @@ async def resolve(meta: SearchResult, exclude: set[str] | None = None, limit: in
     """Скачиваемые версии нужного трека (точное название, близкая длительность), лучшие первыми."""
     exclude = exclude or set()
     title = core_title(meta.title)  # «Draw You Out - From The Hunger Games…» ищем и сравниваем как «Draw You Out»
-    query = f"{meta.artist} {title}".strip()
-    out = await search(query, 10, fast_only=True)  # быстро: YouTube Music + каталог
-    if not [r for r in out.results if r.url not in exclude and not is_lazy(r.url)]:
-        out = await search(query, 10)  # быстрых источников не хватило — полный поиск
     want = norm(title)
     asked_bad = bool(BAD_VERSION_RE.search(meta.title))
     artist_tokens = [norm(t) for t in re.split(r"[\s,&]+", meta.artist) if len(norm(t)) >= 3]
@@ -46,7 +42,18 @@ async def resolve(meta: SearchResult, exclude: set[str] | None = None, limit: in
             return False
         return asked_bad or not BAD_VERSION_RE.search(r.title)
 
-    good = [r for r in out.results if usable(r) and exact(r)]
+    # сначала с главным исполнителем: «Gorillaz, Del The Funky Homosapien Clint Eastwood» YouTube Music ищет хуже,
+    # чем «Gorillaz Clint Eastwood», и альбомной версии в выдаче нет. Не нашлось — с полным списком исполнителей
+    main_artist = re.split(r"\s*(?:,|&|\bfeat\.?|\bft\.?|\bx\b)\s*", meta.artist, maxsplit=1)[0].strip()
+    queries = list(dict.fromkeys(q for q in (f"{main_artist} {title}".strip(), f"{meta.artist} {title}".strip()) if q))
+    good: list[SearchResult] = []
+    for query in queries:
+        out = await search(query, 10, fast_only=True)  # быстро: YouTube Music + каталог
+        if not [r for r in out.results if usable(r)]:
+            out = await search(query, 10)  # быстрых источников не хватило — полный поиск
+        good = [r for r in out.results if usable(r) and exact(r)]
+        if good:
+            break
     # ближайшие по длительности первыми (сортировка стабильна: при равенстве остаётся порядок источников)
     good.sort(key=lambda r: abs(r.duration - meta.duration) if (meta.duration and r.duration) else 999)
     return good[:limit]  # подходящих нет — пусто: лучше сообщить об ошибке, чем играть чужую песню
