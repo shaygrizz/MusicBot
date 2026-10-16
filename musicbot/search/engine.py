@@ -1,10 +1,13 @@
 """Обычный и глубокий поиск: параллельные источники, дедлайны, сборка выдачи."""
 
 import asyncio
+import json
 import logging
 import os
 import time
+from dataclasses import asdict
 
+from .. import db
 from ..download import (
     SearchResult,
 )
@@ -32,11 +35,54 @@ SOFT_DEADLINE = 2.0  # обычный поиск: медленным источ�
 
 DEEP_DEADLINE = 7.0  # глубокий поиск
 
+# ранний ответ: если быстрые источники дали точный трек и не меньше EARLY_MIN результатов, медленные не ждём
+EARLY_EXIT = os.getenv("SEARCH_EARLY_EXIT", "1") != "0"
+EARLY_MIN = int(os.getenv("SEARCH_EARLY_MIN", "3"))
+
+
+def _good_enough(results: list[SearchResult]) -> bool:
+    return len(results) >= EARLY_MIN and any(r.exact for r in results[:2])
+
 
 _search_cache: dict[tuple, tuple[float, Outcome]] = {}
+_inflight: dict[tuple, asyncio.Task] = {}
 
 
-CACHE_TTL = 600  # повторный запрос в течение 10 минут отвечает мгновенно
+# повторный запрос отвечает мгновенно: из памяти, а после перезапуска — из базы
+CACHE_TTL = int(os.getenv("SEARCH_CACHE_TTL", str(12 * 3600)))
+MEMORY_ITEMS = 1000
+
+
+def _dump(out: Outcome) -> str:
+    return json.dumps({**asdict(out), "results": [asdict(r) for r in out.results]}, ensure_ascii=False)
+
+
+def _load(data: str) -> Outcome:
+    raw = json.loads(data)
+    raw["results"] = [SearchResult(**r) for r in raw.get("results", [])]
+    return Outcome(**raw)
+
+
+async def _from_db(key: str) -> Outcome | None:
+    try:
+        data = await db.get_search(key, CACHE_TTL)
+        return _load(data) if data else None
+    except Exception as e:
+        logging.info("кэш поиска в базе недоступен: %s", str(e)[:80])
+        return None
+
+
+async def _to_db(key: str, out: Outcome) -> None:
+    try:
+        await db.set_search(key, _dump(out))
+    except Exception as e:
+        logging.info("кэш поиска не сохранён: %s", str(e)[:80])
+
+
+def _remember(key: tuple, out: Outcome) -> None:
+    if len(_search_cache) >= MEMORY_ITEMS:
+        _search_cache.pop(next(iter(_search_cache)))
+    _search_cache[key] = (time.time(), out)
 
 
 async def search(query: str, limit: int = 8, deep: bool = False, fast_only: bool = False) -> Outcome:
@@ -44,11 +90,21 @@ async def search(query: str, limit: int = 8, deep: bool = False, fast_only: bool
     hit = _search_cache.get(key)
     if hit and time.time() - hit[0] < CACHE_TTL:
         return hit[1]
-    out = await _search_impl(query, limit, deep, fast_only)
+    db_key = "|".join(map(str, key))
+    stored = await _from_db(db_key)
+    if stored is not None:
+        _remember(key, stored)
+        return stored
+    # тот же запрос уже выполняется (например, предзагрузка и нажатие одновременно) — ждём его, а не ищем второй раз
+    task = _inflight.get(key)
+    if task is None:
+        task = asyncio.create_task(_search_impl(query, limit, deep, fast_only))
+        _inflight[key] = task
+        task.add_done_callback(lambda _t, k=key: _inflight.pop(k, None))
+    out = await asyncio.shield(task)
     if out.results:
-        if len(_search_cache) > 200:
-            _search_cache.pop(next(iter(_search_cache)))
-        _search_cache[key] = (time.time(), out)
+        _remember(key, out)
+        await _to_db(db_key, out)
     return out
 
 
@@ -115,30 +171,49 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
     second_songs = [T(safe_call(search_ytm, f"{c.artist} {c.title}", "songs", "ytm")) for c in canons_dz[:3]]
     second_top = [T(safe_call(search_ytm_top, f"{c.artist} {c.title}")) for c in canons_dz[:2]]
     group = [t for k, t in fast.items() if k not in ("dz", "art")] + second_songs + second_top
-    # один зависший источник (например, Яндекс с другого адреса) не должен тормозить весь поиск
-    await asyncio.wait(group, timeout=max(0.3, FAST_DEADLINE - (loop.time() - start)))
+
+    def collect() -> tuple[list[SearchResult], list[Canon]]:
+        canons = dedupe_canons(
+            [canons_dz, [c for c in finished(fast["it"]) + finished(fast["ym"]) if canon_relevant(c, tokens)]]
+        )
+        # порядок в пуле = приоритет при равных: «Top result», найденное по каталогу, затем всё остальное
+        pool: list[SearchResult] = list(finished(fast["top"]))
+        for t in second_top + second_songs:
+            pool.extend(finished(t))
+        pool.extend(finished(fast["ytm"]))
+        return pool, canons
+
+    # один зависший источник (например, Яндекс с другого адреса) не должен тормозить весь поиск;
+    # а когда точный трек уже найден и есть из чего выбрать, остальных быстрых тоже не ждём
+    deadline = max(start + FAST_DEADLINE, loop.time() + 0.3)
+    pending, early = set(group), False
+    while pending and (left := deadline - loop.time()) > 0:
+        _, pending = await asyncio.wait(pending, timeout=left, return_when=asyncio.FIRST_COMPLETED)
+        if EARLY_EXIT and not deep and pending and _good_enough(merge(*collect(), q, limit)):
+            early = True
+            break
     late = [k for k, t in fast.items() if not t.done()]
     for t in group:
         if not t.done():
             t.cancel()
-
-    canons = dedupe_canons(
-        [canons_dz, [c for c in finished(fast["it"]) + finished(fast["ym"]) if canon_relevant(c, tokens)]]
-    )
+    pool, canons = collect()
+    if early:
+        late.append("точный трек найден раньше")
 
     if fast_only:  # подбор версии при нажатии на трек: медленные источники не ждём совсем
         for t in slow.values():
             t.cancel()
         slow = {}
+    elif not deep and slow and EARLY_EXIT and _good_enough(merge(pool, canons, q, limit)):
+        # быстрые источники уже нашли точный трек и есть из чего выбрать: медленные (yt-dlp, SoundCloud)
+        # добавили бы только хвост выдачи, а ждать их — до SOFT_DEADLINE секунд
+        for t in slow.values():
+            t.cancel()
+        late.append("медленные не ждали")
+        slow = {}
     left = max(0.0, (DEEP_DEADLINE if deep else SOFT_DEADLINE) - (loop.time() - start))
     if left and slow:
         await asyncio.wait(slow.values(), timeout=left)
-
-    # порядок в пуле = приоритет при равных: «Top result», найденное по каталогу, затем всё остальное
-    pool: list[SearchResult] = list(finished(fast["top"]))
-    for t in second_top + second_songs:
-        pool.extend(finished(t))
-    pool.extend(finished(fast["ytm"]))
     extra_canons: list[Canon] = []
     for key, t in slow.items():
         if not t.done():

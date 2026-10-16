@@ -105,7 +105,14 @@ async def prefetch(user_id: int, artist: str, title: str, duration: int = 0, cov
             await ensure(user_id, artist, title, duration, cover)
             return
         except Exception as e:
-            logging.warning("избранное не предзагрузилось (%d/%d) %s - %s: %s", attempt + 1, PREFETCH_TRIES, artist, title, str(e)[:150])
+            logging.warning(
+                "избранное не предзагрузилось (%d/%d) %s - %s: %s",
+                attempt + 1,
+                PREFETCH_TRIES,
+                artist,
+                title,
+                str(e)[:150],
+            )
             await asyncio.sleep(5 * (attempt + 1))
 
 

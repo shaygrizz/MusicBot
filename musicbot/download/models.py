@@ -30,6 +30,7 @@ class Downloaded:
     duration: int
     source: str
     workdir: Path
+    origin: str = ""  # ссылка, по которой файл на самом деле скачался (для кэша звука)
 
     def cleanup(self) -> None:
         shutil.rmtree(self.workdir, ignore_errors=True)

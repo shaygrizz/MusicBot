@@ -44,6 +44,23 @@ rejects files that are off by more than 20 s, so a wrong song is never delivered
 YouTube is skipped for two minutes after a real IP block ("not a bot"). A single 403 or 429 on one video does not
 disable it for other songs.
 
+## Speed
+
+The first download of a song is bound by the network: about 2.5 s for yt-dlp to extract the audio link, plus the
+transfer itself (parallel ranges do not help, the limit is bandwidth). Everything around that is cached or done ahead:
+
+| What | How |
+|---|---|
+| repeated search | in memory, then SQLite (`search_cache`) after a restart; identical searches running at once share one call |
+| first search | shared keep-alive HTTP session (`net.py`), sources kept warm (`search/warm.py`); answers as soon as the fast sources found the exact track instead of waiting for every deadline |
+| repeated download | shared disk cache (`audiocache.py`, `DATA_DIR/audio`), keyed by the source link and the catalog link, for every user |
+| first click in the bot | the top result is downloaded right after the search, catalog songs included |
+| Mini App sheet | versions come from the fast sources only; the top version starts downloading when the sheet opens; **Play** streams through `/api/stream/{tok}` (a proxy with `Range` support, because the YouTube link is bound to the server's IP) and falls back to the whole file if the WebView cannot play the stream |
+| download pipeline | the cover downloads in parallel with the audio; the length check reads the header with `mutagen` and runs `ffprobe` only as a fallback |
+
+A stream that started through the proxy keeps using it: the cached file is remuxed and its bytes differ, so a seek
+must not switch sources mid-play.
+
 ## Mini App (`musicbot/web`)
 
 Every API request carries Telegram's signed `initData` in `X-Init-Data`. The server verifies the HMAC with the bot
@@ -52,8 +69,8 @@ answers 404 to everyone outside `ADMIN_USERS`.
 
 ## Data
 
-SQLite tables: `users`, `plays`, `favorites`, `cache` (Telegram `file_id`s). The favorites audio cache lives in
-`DATA_DIR/favorites`. Paths come from `paths.py`, so the same code runs locally and in a container with
+SQLite tables: `users`, `plays`, `favorites`, `cache` (Telegram `file_id`s), `search_cache`. The favorites audio
+cache lives in `DATA_DIR/favorites`, the shared audio cache in `DATA_DIR/audio`. Paths come from `paths.py`, so the same code runs locally and in a container with
 `DATA_DIR=/data`.
 
 ## Testing

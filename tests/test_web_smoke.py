@@ -48,3 +48,11 @@ async def test_unknown_file_tokens_are_not_found():
         assert (await c.get("/fav/..%2F..%2Fsecret")).status in (401, 404)
     finally:
         await c.close()
+
+
+async def test_stream_link_needs_a_valid_token():
+    c = await client()
+    try:
+        assert (await c.get("/api/stream/not-a-real-token")).status == 404
+    finally:
+        await c.close()

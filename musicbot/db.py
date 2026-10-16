@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS favorites (
     ts INTEGER,
     UNIQUE(user_id, key)
 );
+CREATE TABLE IF NOT EXISTS search_cache (
+    key TEXT PRIMARY KEY,
+    ts INTEGER,
+    data TEXT
+);
 """
 
 # колонки, добавленные позже: у уже существующей базы их нет, поэтому дописываем при запуске
@@ -236,6 +241,27 @@ async def set_cached(key: str, file_id: str, title: str, artist: str, duration: 
         await db.execute(
             "INSERT OR REPLACE INTO cache(key, file_id, title, artist, duration) VALUES (?,?,?,?,?)",
             (key, file_id, title, artist, duration),
+        )
+        await db.commit()
+
+
+async def get_search(key: str, max_age: int) -> str | None:
+    """Сохранённая выдача поиска (JSON), если она не старше max_age секунд. Переживает перезапуск бота."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT data FROM search_cache WHERE key=? AND ts>=?", (key, int(time.time()) - max_age))
+        row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def set_search(key: str, data: str, keep: int = 5000) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO search_cache(key, ts, data) VALUES (?,?,?)", (key, int(time.time()), data)
+        )
+        # таблица не растёт бесконечно: оставляем самые свежие записи
+        await db.execute(
+            "DELETE FROM search_cache WHERE key NOT IN (SELECT key FROM search_cache ORDER BY ts DESC LIMIT ?)",
+            (keep,),
         )
         await db.commit()
 

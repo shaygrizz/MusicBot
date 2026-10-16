@@ -5,12 +5,13 @@ import logging
 import shutil
 import time
 import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from .. import ffmpeg
 from ..paths import DOWNLOAD_DIR
 from .fallbacks import audius_download, hitmo_download, tikwm, title_fallbacks
-from .media import MAX_LEADING_SILENCE, fetch_thumb, leading_silence, to_mp3
+from .media import MAX_LEADING_SILENCE, fetch_thumb, fetch_thumb_bytes, leading_silence, to_mp3
 from .models import MAX_SIZE, Downloaded, SearchResult
 from .urls import resolve_short
 from .youtube import ALT_YT_CLIENTS, BOT_BLOCK_MARKERS, TOO_BIG, UNAVAILABLE_MARKERS, fast_audio, ytdlp_run
@@ -59,11 +60,16 @@ def _strategies(url: str, kind: str, meta: SearchResult | None, fallbacks: bool 
         yield from title_fallbacks(url, kind, meta)
 
 
+_thumb_pool = ThreadPoolExecutor(4, thread_name_prefix="thumb")
+
+
 def _download_sync(url: str, kind: str, meta: SearchResult | None = None, fallbacks: bool = True) -> Downloaded:
     global _yt_blocked_until
     url = resolve_short(url)
     errors: list[str] = []
     skip_youtube = False
+    # обложка качается одновременно со звуком, а не после него (экономит до секунды)
+    thumb_bytes = _thumb_pool.submit(fetch_thumb_bytes, meta.thumb_url) if meta and meta.thumb_url else None
     for name, run, uses_yt in _strategies(url, kind, meta, fallbacks):
         if uses_yt and skip_youtube:
             continue
@@ -71,7 +77,7 @@ def _download_sync(url: str, kind: str, meta: SearchResult | None = None, fallba
         workdir.mkdir(parents=True)
         try:
             path, info = run(workdir)
-            result = _finish(path, info, kind, meta, workdir)
+            result = _finish(path, info, kind, meta, workdir, thumb_bytes)
             logging.info("скачано способом %s: %s", name, url)
             return result
         except Exception as e:
@@ -91,7 +97,9 @@ def _download_sync(url: str, kind: str, meta: SearchResult | None = None, fallba
     raise RuntimeError("Все способы скачивания не сработали: " + " | ".join(errors))
 
 
-def _finish(path: Path, info: dict, kind: str, meta: SearchResult | None, workdir: Path) -> Downloaded:
+def _finish(
+    path: Path, info: dict, kind: str, meta: SearchResult | None, workdir: Path, thumb_bytes: Future | None = None
+) -> Downloaded:
     if kind == "audio":
         gap = leading_silence(path)
         if gap > MAX_LEADING_SILENCE:  # пустой или «немой» файл — пробуем другой источник
@@ -103,7 +111,15 @@ def _finish(path: Path, info: dict, kind: str, meta: SearchResult | None, workdi
         raise RuntimeError("File exceeds 50 MB: Telegram does not let bots send it")
 
     thumb = None
-    if meta and meta.thumb_url:
+    if thumb_bytes is not None:
+        try:
+            data = thumb_bytes.result(timeout=8)
+        except Exception:
+            data = None
+        if data:
+            thumb = workdir / "cover.jpg"
+            thumb.write_bytes(data)
+    elif meta and meta.thumb_url:
         thumb = fetch_thumb(meta.thumb_url, workdir / "cover.jpg")
     if thumb is None:
         jpgs = [p for p in workdir.iterdir() if p.suffix.lower() == ".jpg"]

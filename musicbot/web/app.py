@@ -11,15 +11,14 @@ import secrets
 import subprocess
 import time
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl
 
 from aiogram import Bot
 from aiogram.types import FSInputFile
-from aiohttp import web
+from aiohttp import ClientSession, ClientTimeout, web
 
-from .. import db, favcache, paths, search
+from .. import audiocache, db, download, favcache, net, paths, search
 from .. import favorites as favlib  # внутри make_app есть обработчик с именем favorites
 from ..download import Downloaded, SearchResult
 
@@ -54,9 +53,7 @@ def validate_init_data(init_data: str, bot_token: str, max_age: int = INITDATA_M
 
 
 def _get_json(url: str):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 MusicBot/1.0"})
-    with urllib.request.urlopen(req, timeout=10) as r:
-        return json.load(r)
+    return net.get_json(url)
 
 
 def _deezer_recs(artists: list[str]) -> list[dict]:
@@ -165,6 +162,9 @@ STORE_TTL = 15 * 60  # столько живут найденные версии
 MAX_PARALLEL = 3
 versions: dict[str, tuple[int, float, SearchResult]] = {}  # vid -> (user_id, время, результат поиска)
 files: dict[str, tuple[int, float, str, Downloaded]] = {}  # токен -> (user_id, время, vid, файл)
+streams: dict[str, tuple[int, float, str]] = {}  # токен потока -> (user_id, время, vid)
+played: set[str] = set()  # токены, по которым прослушивание уже записано
+proxied: set[str] = set()  # потоки, начатые через прокси YouTube
 inflight: dict[tuple[int, str], asyncio.Task] = {}
 _sem: asyncio.Semaphore | None = None
 
@@ -179,29 +179,61 @@ def _purge() -> None:
         versions.pop(k, None)
     for k in [k for k, (_, ts, _, _) in files.items() if now - ts > STORE_TTL]:
         files.pop(k)[3].cleanup()
+        played.discard(k)
+    for k in [k for k, (_, ts, _) in streams.items() if now - ts > STORE_TTL]:
+        streams.pop(k, None)
+        played.discard(k)
+        proxied.discard(k)
 
 
-async def _get_file(uid: int, vid: str, r: SearchResult) -> tuple[str, Downloaded]:
-    """Скачивает версию (один раз на пользователя и версию), возвращает токен файла."""
+def _ready_file(uid: int, vid: str) -> tuple[str, Downloaded] | None:
     for tok, (u, _, v, d) in files.items():
         if u == uid and v == vid and d.path.exists():
             return tok, d
+    return None
 
-    async def job():
+
+async def _get_file(uid: int, vid: str, r: SearchResult) -> tuple[str, Downloaded]:
+    """Скачивает версию (один раз на пользователя и версию), возвращает токен файла.
+    Одновременные запросы (предзагрузка, «Play», «Save file») ждут одну и ту же загрузку."""
+    ready = _ready_file(uid, vid)
+    if ready:
+        return ready
+
+    async def job() -> tuple[str, Downloaded]:
         global _sem
         _sem = _sem or asyncio.Semaphore(MAX_PARALLEL)
         async with _sem:
-            return await search.fetch_audio(r.url, r)
+            d = await search.fetch_audio(r.url, r)
+        tok = secrets.token_urlsafe(18)
+        files[tok] = (uid, time.time(), vid, d)
+        return tok, d
 
-    task = inflight.setdefault((uid, vid), asyncio.create_task(job()))
+    key = (uid, vid)
+    task = inflight.get(key)
+    if task is None:
+        task = asyncio.create_task(job())
+        inflight[key] = task
+        task.add_done_callback(lambda _t: inflight.pop(key, None))
+    return await asyncio.shield(task)  # отмена одного запроса не обрывает загрузку для остальных
+
+
+async def _prefetch_version(uid: int, vid: str, r: SearchResult) -> None:
+    """Шторка открыта: первую версию начинаем качать сразу, к нажатию «Play» она уже на диске или в пути."""
     try:
-        d = await task
-    finally:
-        inflight.pop((uid, vid), None)
-    tok = secrets.token_urlsafe(18)
-    files[tok] = (uid, time.time(), vid, d)
-    await db.log_play(uid, d.title, d.artist, d.duration, d.source, r.url, "audio")
-    return tok, d
+        await _get_file(uid, vid, r)
+    except Exception as e:
+        logging.info("webapp: предзагрузка версии не удалась %s: %s", r.url, str(e)[:120])
+
+
+_client: "ClientSession | None" = None
+
+
+def _http() -> "ClientSession":
+    global _client
+    if _client is None or _client.closed:
+        _client = ClientSession(timeout=ClientTimeout(total=None, sock_connect=10, sock_read=30))
+    return _client
 
 
 def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[int]) -> web.Application:
@@ -412,7 +444,8 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         want_dur = int(body.get("duration") or 0)
         if not title:
             raise web.HTTPBadRequest(text="no title")
-        out = await search.search(f"{artist} {title}".strip(), 8)
+        # fast_only: в шторке нужны скачиваемые версии этой песни, медленные источники (yt-dlp, SoundCloud) не ждём
+        out = await search.search(f"{artist} {title}".strip(), 8, fast_only=True)
         want = _norm_full(title)
 
         def score(r: SearchResult) -> int:
@@ -424,9 +457,12 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         for r in sorted(out.results, key=score)[:5]:
             vid = secrets.token_urlsafe(8)
             versions[vid] = (user["id"], time.time(), r)
+            stok = secrets.token_urlsafe(18)  # <audio> не умеет слать заголовки, поэтому поток — по секретной ссылке
+            streams[stok] = (user["id"], time.time(), vid)
             items.append(
                 {
                     "vid": vid,
+                    "stream": f"/api/stream/{stok}",
                     "title": r.title,
                     "artist": r.artist,
                     "duration": r.duration,
@@ -434,7 +470,90 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
                     "icon": search.ICONS.get(r.source, "🎵"),
                 }
             )
+        if items:
+            top = versions[items[0]["vid"]][2]
+            favcache.spawn(_prefetch_version(user["id"], items[0]["vid"], top))
+        for it in items[1:3]:  # остальным версиям заранее достаём ссылку на звук: переключение тоже будет быстрым
+            favcache.spawn(download.warm(versions[it["vid"]][2].url))
         return web.json_response({"items": items})
+
+    async def stream(request: web.Request):
+        """Звук для плеера в шторке, сразу, не дожидаясь полной загрузки. Файл уже на диске — отдаём его;
+        иначе YouTube проксируется через сервер (прямая ссылка привязана к IP сервера и у телефона не откроется)."""
+        item = streams.get(request.match_info["tok"])
+        if not item or time.time() - item[1] > STORE_TTL:
+            raise web.HTTPNotFound()
+        uid, _, vid = item
+        entry = versions.get(vid)
+        if not entry:
+            raise web.HTTPNotFound()
+        r = entry[2]
+        if request.match_info["tok"] not in played:
+            played.add(request.match_info["tok"])
+            await db.log_play(uid, r.title, r.artist, r.duration, r.source, r.url, "audio", r.thumb_url)
+        tok = request.match_info["tok"]
+        # файл на диске перепакован и по байтам не совпадает с потоком YouTube: начатый поток продолжаем
+        # тем же источником, иначе перемотка (запрос с Range) получит куски другого файла
+        if tok not in proxied:
+            ready = _ready_file(uid, vid)
+            path = ready[1].path if ready else audiocache.path_for(r.url)
+            if path is not None:
+                return web.FileResponse(
+                    path, headers={"Content-Type": favcache.media_type(path), "Cache-Control": "no-store"}
+                )
+        if "youtube.com" in r.url or "youtu.be" in r.url:
+            try:
+                proxied.add(tok)
+                return await _proxy_youtube(request, r.url)
+            except web.HTTPException:
+                raise
+            except Exception as e:
+                logging.info("webapp: поток не удался %s: %s", r.url, str(e)[:120])
+        # потоком нельзя (другой источник или сбой) — ждём файл целиком
+        try:
+            _, d = await _get_file(uid, vid, r)
+        except Exception:
+            raise web.HTTPBadGateway(text="download failed")
+        return web.FileResponse(
+            d.path, headers={"Content-Type": favcache.media_type(d.path), "Cache-Control": "no-store"}
+        )
+
+    async def _proxy_youtube(request: web.Request, url: str) -> web.StreamResponse:
+        for attempt in range(2):
+            src = await asyncio.to_thread(download.stream_source, url)
+            if src is None:
+                raise RuntimeError("нет прямой ссылки")
+            direct, headers, ctype = src
+            asked = request.headers.get("Range")
+            # без Range YouTube режет скорость; просим с начала, а клиенту отвечаем обычным 200
+            headers = {**headers, "Range": asked or "bytes=0-"}
+            up = await _http().get(direct, headers=headers)
+            if up.status in (403, 410) and attempt == 0:
+                up.release()
+                download.forget(url)  # ссылка протухла — извлекаем заново
+                continue
+            if up.status not in (200, 206):
+                up.release()
+                raise RuntimeError(f"YouTube ответил {up.status}")
+            try:
+                resp = web.StreamResponse(status=206 if asked and up.status == 206 else 200)
+                resp.headers["Content-Type"] = ctype
+                resp.headers["Accept-Ranges"] = "bytes"
+                resp.headers["Cache-Control"] = "no-store"
+                if "Content-Length" in up.headers:
+                    resp.headers["Content-Length"] = up.headers["Content-Length"]
+                if asked and "Content-Range" in up.headers:
+                    resp.headers["Content-Range"] = up.headers["Content-Range"]
+                await resp.prepare(request)
+                try:
+                    async for chunk in up.content.iter_chunked(64 * 1024):
+                        await resp.write(chunk)
+                except (ConnectionResetError, asyncio.CancelledError):
+                    pass  # плеер сам закрыл соединение (перемотка, пауза, закрытая шторка)
+                return resp
+            finally:
+                up.release()
+        raise RuntimeError("ссылка на звук не открылась")
 
     async def fetch(request: web.Request):
         """mode=file — скачать на сервер и отдать ссылку для плеера; mode=chat — прислать в чат с ботом."""
@@ -449,6 +568,9 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         except Exception as e:
             logging.warning("webapp: не скачалось %s: %s", r.url, str(e)[:150])
             raise web.HTTPBadGateway(text="download failed")
+        if tok not in played:  # одно прослушивание на файл, сколько бы раз его ни запросили
+            played.add(tok)
+            await db.log_play(user["id"], d.title, d.artist, d.duration, d.source, r.url, "audio")
         if mode == "chat":
             if bot is None:
                 raise web.HTTPServiceUnavailable(text="no bot")
@@ -508,8 +630,15 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             web.post("/api/resolve", resolve),
             web.post("/api/fetch", fetch),
             web.get("/api/file/{tok}", serve_file),
+            web.get("/api/stream/{tok}", stream),
         ]
     )
+
+    async def close_client(_app: web.Application) -> None:
+        if _client is not None and not _client.closed:
+            await _client.close()
+
+    app.on_cleanup.append(close_client)
     return app
 
 

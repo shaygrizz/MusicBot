@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 
+from .. import audiocache
 from ..download import (
     TOO_BIG,
     Downloaded,
@@ -11,6 +12,7 @@ from ..download import (
     download,
     probe_duration,
 )
+from ..paths import DOWNLOAD_DIR
 from ..textutil import BAD_VERSION_RE, norm
 from .engine import search
 from .models import is_lazy
@@ -57,7 +59,19 @@ async def _wrong_length(d, meta: SearchResult) -> bool:
 
 
 async def fetch_audio(url: str, meta: SearchResult | None) -> "Downloaded":
-    """Скачивает трек. Не получилось по выбранной ссылке — пробует другие версии того же трека,
+    """Скачивает трек. Сначала смотрит общий дисковый кэш: песня, которую уже кто-то скачивал, отдаётся сразу."""
+    hit = await asyncio.to_thread(audiocache.get, url, DOWNLOAD_DIR)
+    if hit is not None:
+        if meta and meta.title:
+            hit.title, hit.artist = meta.title, meta.artist or hit.artist
+        return hit
+    d = await _fetch_audio(url, meta)
+    await asyncio.to_thread(audiocache.put, [url, d.origin], d)
+    return d
+
+
+async def _fetch_audio(url: str, meta: SearchResult | None) -> "Downloaded":
+    """Не получилось по выбранной ссылке — пробует другие версии того же трека,
     и только потом запасные источники (SoundCloud, dydki). Ссылка без метаданных качается как есть."""
     if meta is None or not meta.title:
         return await download(url, "audio", meta)
@@ -96,6 +110,7 @@ async def fetch_audio(url: str, meta: SearchResult | None) -> "Downloaded":
                 d.cleanup()
                 continue
             d.title, d.artist = meta.title, meta.artist or d.artist  # название и исполнитель из каталога
+            d.origin = cand.url  # под этой ссылкой файл тоже попадёт в кэш
             return d
         if not first_round:
             break

@@ -74,12 +74,15 @@ def start_prefetch(results: list[download.SearchResult]) -> None:
     now = time.time()
     for url in [u for u, (ts, _) in prefetch.items() if now - ts > PREFETCH_TTL]:
         _drop_prefetch(url)
-    for r in [x for x in results if x.url.startswith("lazy://")][:3]:  # список исполнителя: готовим первые песни
-        asyncio.create_task(warm_lazy(r))
-    playable = [r for r in results if not r.url.startswith("lazy://")]  # у песен из каталога источника ещё нет
-    for r in playable[:PREFETCH_TOP]:
+    lazy = [x for x in results if x.url.startswith("lazy://")]  # песни из каталога: источник ещё не выбран
+    playable = [r for r in results if not r.url.startswith("lazy://")]
+    # первую песню выдачи качаем целиком заранее, даже если она из каталога: чаще всего нажимают именно её
+    full = playable[:PREFETCH_TOP] if playable and (not lazy or results[0] is playable[0]) else lazy[:1] + playable[:1]
+    for r in full:
         if r.url not in prefetch:
             prefetch[r.url] = (now, asyncio.create_task(search.fetch_audio(r.url, r)))
+    for r in [x for x in lazy if x not in full][:3]:  # остальным из каталога находим источник и ссылку на звук
+        asyncio.create_task(warm_lazy(r))
     for r in playable[PREFETCH_TOP : PREFETCH_TOP + 4]:  # остальным заранее достаём ссылку на звук (экономит 2–3 с)
         asyncio.create_task(download.warm(r.url))
 
@@ -639,7 +642,7 @@ async def main():
     if not TOKEN:
         raise SystemExit("Нет BOT_TOKEN в .env")
     await db.init_db()
-    asyncio.create_task(asyncio.to_thread(download.get_ytm))  # прогрев: первый поиск без задержки
+    warm_task = asyncio.create_task(search.keep_warm())  # noqa: F841 — прогрев: поиск идёт по готовым соединениям
     bot = Bot(TOKEN)
     dp = Dispatcher()
     dp.include_router(router)

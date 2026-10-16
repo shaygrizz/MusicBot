@@ -4,6 +4,7 @@ aiosqlite>=0.22
 beautifulsoup4>=4.15
 mutagen>=1.48
 python-dotenv>=1.2
+requests>=2.32
 static-ffmpeg>=3.0
 yt-dlp>=2026.8.19
 ytmusicapi>=1.12

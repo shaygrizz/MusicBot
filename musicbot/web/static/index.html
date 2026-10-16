@@ -678,8 +678,26 @@ async function openTrack(rec) {
   };
 
   play.onclick = async () => {
-    if (busy) return; lock(true);
+    if (busy) return;
     if (sheetAu) sheetAu.pause();  // two players must not sound at once
+    if (current.stream) {
+      // the server streams while the file is still downloading, so sound starts in about a second;
+      // if this WebView cannot play the stream, fall back to the whole file
+      slot.replaceChildren();
+      const mp = miniPlayer(current.stream), v = current; sheetAu = mp.au; slot.append(mp.box);
+      setStatus("Loading…");
+      mp.au.addEventListener("playing", () => setStatus(""), { once: true });
+      mp.au.addEventListener("error", async () => {
+        if (current !== v) return;
+        lock(true);
+        try { const f = await getFile(); mp.au.src = f.url; setStatus("Ready.", "ok"); mp.au.play().catch(() => setStatus("Press play to start.", "ok")); }
+        catch (e) { failed(); }
+        lock(false);
+      }, { once: true });
+      mp.au.play().catch(e => { if (e && e.name === "NotAllowedError") setStatus("Press play to start.", "ok"); });
+      return;
+    }
+    lock(true);
     try {
       const f = await getFile();
       slot.replaceChildren();

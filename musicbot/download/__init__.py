@@ -5,7 +5,7 @@ from .fallbacks import hitmo_download
 from .media import probe_duration
 from .models import MAX_SIZE, Downloaded, SearchResult
 from .urls import extract_url, resolve_short
-from .youtube import TOO_BIG, warm
+from .youtube import TOO_BIG, forget, stream_source, warm
 from .ytmusic import get_ytm, search, search_ytdlp_sync, small_thumb
 
 __all__ = [
@@ -15,6 +15,7 @@ __all__ = [
     "TOO_BIG",
     "download",
     "extract_url",
+    "forget",
     "get_ytm",
     "hitmo_download",
     "init",
@@ -23,5 +24,6 @@ __all__ = [
     "search",
     "search_ytdlp_sync",
     "small_thumb",
+    "stream_source",
     "warm",
 ]

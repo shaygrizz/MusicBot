@@ -9,6 +9,14 @@ def _bot_token(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "123456:TEST-TOKEN")
 
 
+@pytest.fixture(autouse=True)
+def _isolated_audio_cache(monkeypatch, tmp_path):
+    """Каждый тест со своим пустым кэшем звука: тесты не видят файлов друг друга и не пишут в data/."""
+    from musicbot import audiocache
+
+    monkeypatch.setattr(audiocache, "CACHE_DIR", tmp_path / "audio-cache")
+
+
 def make_result(title, artist="", duration=0, source="ytm", url=None):
     return SearchResult(
         id="",

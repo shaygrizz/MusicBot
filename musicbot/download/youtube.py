@@ -4,14 +4,12 @@ import asyncio
 import os
 import subprocess
 import time
-import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import yt_dlp
 
-from .. import paths
+from .. import net, paths
 from .models import MAX_SIZE, SearchResult
 
 PARALLEL_PARTS = 6
@@ -22,9 +20,9 @@ def _fetch_range(url: str, headers: dict, a: int, b: int) -> bytes:
     last: Exception | None = None
     for attempt in range(3):
         try:
-            req = urllib.request.Request(url, headers={**headers, "Range": f"bytes={a}-{b}"})
-            with urllib.request.urlopen(req, timeout=30) as r:
-                return r.read()
+            r = net.session.get(url, headers={**headers, "Range": f"bytes={a}-{b}"}, timeout=30)
+            r.raise_for_status()
+            return r.content
         except Exception as e:
             last = e
             time.sleep(0.4 * 2**attempt)
@@ -60,6 +58,20 @@ def _yt_info(url: str) -> dict:
         _info_cache.pop(next(iter(_info_cache)))
     _info_cache[url] = (time.time(), info)
     return info
+
+
+def stream_source(url: str) -> tuple[str, dict, str] | None:
+    """Прямая ссылка на звук для потокового воспроизведения: (ссылка, заголовки, тип). None — потоком нельзя."""
+    info = _yt_info(url)
+    if not info.get("url") or info.get("protocol") not in ("https", "http"):
+        return None
+    ctype = "audio/mp4" if info.get("ext") == "m4a" else "audio/webm"
+    return info["url"], dict(info.get("http_headers") or {}), ctype
+
+
+def forget(url: str) -> None:
+    """Ссылка протухла (403): в следующий раз извлечём заново."""
+    _info_cache.pop(url, None)
 
 
 async def warm(url: str) -> None:

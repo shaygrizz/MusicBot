@@ -11,6 +11,7 @@ if _root:
     DB = DATA_DIR / "musicbot.db"
     AVATARS = DATA_DIR / "avatars"
     FAVORITES = DATA_DIR / "favorites"
+    AUDIO = DATA_DIR / "audio"
     COOKIES = DATA_DIR / "cookies.txt"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 else:
@@ -18,6 +19,7 @@ else:
     DB = Path("musicbot.db")
     AVATARS = _here / "data" / "avatars"
     FAVORITES = _here / "data" / "favorites"
+    AUDIO = _here / "data" / "audio"
     COOKIES = Path("cookies.txt")
 
 # временные файлы скачивания: у каждой загрузки своя папка, при запуске бота папка очищается
