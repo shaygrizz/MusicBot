@@ -67,6 +67,16 @@ def deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
         except Exception:
             tracks = []
     exact = [a for a in data.get("data", []) if norm(a["name"]) == name_q]
+    # поиск исполнителей Deezer иногда не показывает самого известного: по «aurora» — десять безвестных Aurora,
+    # а AURORA (Runaway) нет. Зато самый популярный трек по запросу — её; берём его исполнителя в кандидаты
+    lead = (tracks[0].get("artist") or {}) if tracks else {}
+    if lead.get("id") and norm(lead.get("name", "")) == name_q and all(a.get("id") != lead["id"] for a in exact):
+        try:
+            found = get_json(f"https://api.deezer.com/artist/{lead['id']}")
+            if found.get("id") and found.get("name"):
+                exact.append(found)
+        except Exception:
+            pass
     if not any((a.get("nb_fan") or 0) >= FUZZY_ARTIST_FANS for a in exact):
         # опечатка в имени («kendric lamar», «eminm»): Deezer её прощает, берём похожее имя, но только у заметных исполнителей —
         # иначе песня с похожим названием сошла бы за исполнителя. Пустые исполнители-двойники («Travis Scot») не мешают

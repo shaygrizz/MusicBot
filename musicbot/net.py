@@ -1,12 +1,17 @@
 """Запросы к открытым JSON API через общую сессию: соединения переиспользуются (keep-alive),
 поэтому каждый запрос не тратит 200–500 мс на новое TLS-рукопожатие."""
 
+from http.cookiejar import DefaultCookiePolicy
+
 import requests
 from requests.adapters import HTTPAdapter
 
 UA = "Mozilla/5.0 MusicBot/1.0"
 
 session = requests.Session()
+# без кук, как было с urllib: иначе сессия копит антибот-куки (у Deezer — Akamai bm_sz) от всех запросов сервера,
+# и API может начать отвечать иначе, чем на чистый запрос
+session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=[]))
 _adapter = HTTPAdapter(pool_connections=32, pool_maxsize=32)
 session.mount("https://", _adapter)
 session.mount("http://", _adapter)

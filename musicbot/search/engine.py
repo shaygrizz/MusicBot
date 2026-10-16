@@ -79,6 +79,8 @@ async def _to_db(key: str, out: Outcome) -> None:
         logging.info("кэш поиска не сохранён: %s", str(e)[:80])
 
 
+# меняется, когда меняются правила поиска: старые сохранённые выдачи после выкатки просто перестают находиться
+DB_KEY_VERSION = "v2|"
 PARTIAL_TTL = 600  # неполная выдача живёт 10 минут и только в памяти: источник мог просто запнуться
 _background: set[asyncio.Task] = set()
 
@@ -94,7 +96,7 @@ async def search(query: str, limit: int = 8, deep: bool = False, fast_only: bool
     hit = _search_cache.get(key)
     if hit and time.time() < hit[0]:
         return hit[1]
-    db_key = "|".join(map(str, key))
+    db_key = DB_KEY_VERSION + "|".join(map(str, key))
     stored = await _from_db(db_key)
     if stored is not None:
         _remember(key, stored)
@@ -150,6 +152,8 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
     # Deezer и проверка «это имя исполнителя?» отвечают первыми — по ним решаем, что делать дальше
     await asyncio.wait([fast["dz"], fast["art"]], timeout=FAST_DEADLINE)
 
+    # Deezer или проверка исполнителя не успели: «aurora» могла остаться без списка песен исполнителя
+    catalog_missed = not fast["dz"].done() or not fast["art"].done()
     artist_hit = finished(fast["art"]) or None
     if artist_hit:  # «queen» -> только песни Queen, остальные источники не нужны
         for t in list(fast.values()) + list(slow.values()) + ([lyric] if lyric else []):
@@ -296,4 +300,6 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
             for i, c in enumerate(clean[:3])
         ]
         hint = f"{canons[0].artist} — {canons[0].title}"
-    return Outcome(results, hint, q, partial=bool(hint) or missed_main)
+    # не запоминаем надолго выдачу, собранную без каталогов: главные источники могли просто запнуться
+    partial = bool(hint) or missed_main or catalog_missed or not canons
+    return Outcome(results, hint, q, partial=partial)

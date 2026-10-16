@@ -38,12 +38,14 @@ def track(title, artist, rank=900_000, duration=200):
     }
 
 
-def fake_deezer(monkeypatch, artists, tracks, top):
+def fake_deezer(monkeypatch, artists, tracks, top, info=None):
     def get_json(url, *args, **kwargs):
         if "/search/artist" in url:
             return {"data": artists}
         if "/artist/" in url and "/top" in url:
             return {"data": top}
+        if "/artist/" in url:
+            return (info or {}).get(int(url.rsplit("/", 1)[1]), {})
         return {"data": tracks}
 
     monkeypatch.setattr(catalogs, "get_json", get_json)
@@ -94,3 +96,19 @@ def test_famous_artist_stays_an_artist_even_if_a_song_shares_the_name(monkeypatc
 @pytest.mark.parametrize("query", ["x", " "])
 def test_too_short_queries_are_not_artists(query):
     assert deezer_artist(query) is None
+
+
+def test_famous_artist_missing_from_artist_search_is_found_by_her_top_song(monkeypatch):
+    # по «aurora» Deezer показывает только безвестных Aurora, но первый трек выдачи — AURORA - Runaway
+    runaway = track("Runaway", "AURORA", rank=945_380)
+    runaway["artist"]["id"] = 7
+    fake_deezer(
+        monkeypatch,
+        artists=[{"id": 1, "name": "Aurora", "nb_fan": 2_484}, {"id": 2, "name": "Aurora", "nb_fan": 389}],
+        tracks=[runaway],
+        top=[track("Runaway", "AURORA"), track("Cure For Me", "AURORA")],
+        info={7: {"id": 7, "name": "AURORA", "nb_fan": 1_350_000}},
+    )
+    name, songs = deezer_artist("aurora")
+    assert name == "AURORA"
+    assert [c.title for c in songs] == ["Runaway", "Cure For Me"]
