@@ -218,8 +218,9 @@
     font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
   /* строки дашборда, которые можно нажать */
   .list li.pick { cursor: pointer; }
-  .list li.pick:hover .nm, .list li.pick:focus-visible .nm { color: var(--rose); }
-  .list li.pick:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .list li.pick:hover .nm, .list li.pick:focus-visible .nm,
+  .favrow:hover .nm, .favrow:focus-visible .nm { color: var(--rose); }
+  .list li.pick:focus-visible, .favrow:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 </style>
 </head>
 <body>
