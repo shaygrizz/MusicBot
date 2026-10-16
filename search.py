@@ -160,6 +160,77 @@ def _genius(q: str) -> list[Canon]:
     return out
 
 
+LYRIC_MIN_WORDS = 3  # от скольких слов запрос считаем «строчкой из песни»
+LYRIC_HITS = 1  # лучшее совпадение по тексту; следующие у Genius обычно случайные
+
+
+def _clean_genius_title(title: str) -> str:
+    """«Мама, я танцую (Mom, I Dance)» -> «Мама, я танцую»: английский перевод в скобках не нужен."""
+    main, _, tail = title.partition(" (")
+    if re.search("[а-яё]", main, re.I) and tail and not re.search("[а-яё]", tail, re.I):
+        return main.strip()
+    return title.strip()
+
+
+def _sings_it(hit: dict, q: str) -> bool:
+    """В тексте песни есть строка, почти совпадающая с запросом. Если запрос лишь часть длинной строки
+    («Ik voel me tame impala the less I know the better»), песня его только упоминает, а не поёт."""
+    want = _norm(q)
+    if len(want) < 8:
+        return False
+    for hl in hit.get("highlights") or []:
+        for line in str(hl.get("value", "")).splitlines():
+            ln = _norm(line)
+            if len(ln) < 8:
+                continue
+            if want in ln and len(want) >= 0.8 * len(ln):
+                return True
+            if ln in want and len(ln) >= 12:  # запрос захватывает несколько строк
+                return True
+    return False
+
+
+def _lyric_catalog(q: str) -> list[Canon]:
+    """Поиск песни по словам из текста (Genius ищет по тексту, а не только по названию).
+    «is this the real life is this just fantasy» -> Queen — Bohemian Rhapsody.
+    Берём разные песни (каверы и ремастеры с тем же названием отбрасываем), длительность и обложку уточняем в Deezer."""
+    data = _get_json("https://genius.com/api/search/lyric?per_page=10&q=" + urllib.parse.quote(q))
+    out: list[Canon] = []
+    for sec in data.get("response", {}).get("sections", []):
+        for h in sec.get("hits", []):
+            r = h.get("result", {})
+            artist = (r.get("primary_artist") or {}).get("name", "")
+            title = _clean_genius_title(r.get("title", ""))
+            if not artist or not title or "Genius" in artist:  # страницы переводов
+                continue
+            if not _sings_it(h, q):
+                continue
+            if BAD_VERSION_RE.search(title) and not BAD_VERSION_RE.search(q):
+                continue
+            if any(_norm(title) == _norm(c.title) for c in out):
+                continue  # то же название у другого исполнителя — это кавер, берём первого (самого популярного)
+            out.append(Canon(artist, title, 0, r.get("song_art_image_thumbnail_url", "")))
+            if len(out) >= LYRIC_HITS:
+                return out
+    return out
+
+
+def _enrich(c: Canon) -> Canon:
+    """Длительность и обложка из Deezer: по ним проверяется, что скачалась именно эта песня."""
+    try:
+        want_t, want_a = _norm(c.title), _norm(c.artist)
+        for d in _deezer(f"{c.artist} {c.title}", 5):
+            if _norm(d.title) == want_t and (want_a in _norm(d.artist) or _norm(d.artist) in want_a):
+                return Canon(d.artist, d.title, d.duration, d.thumb or c.thumb)
+    except Exception:
+        pass
+    return c
+
+
+def _lyric_candidates(q: str) -> list[Canon]:
+    return [_enrich(c) for c in _lyric_catalog(q)]
+
+
 # ---------- источники со скачиваемыми результатами ----------
 
 def _dur(e: dict) -> int:
@@ -443,12 +514,13 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
         slow["gen"] = T(_safe(_genius, q))
         slow["oa"] = T(_safe(_ytm, q + " official audio", "videos", "ytmv"))
         slow["lyr2"] = T(_safe(_ytm, q + " lyrics", "songs", "ytm"))
+    lyric = T(_safe(_lyric_candidates, q)) if len(words) >= LYRIC_MIN_WORDS and not fast_only else None
     # Deezer и проверка «это имя исполнителя?» отвечают первыми — по ним решаем, что делать дальше
     await asyncio.wait([fast["dz"], fast["art"]], timeout=FAST_DEADLINE)
 
     artist_hit = _done(fast["art"]) or None
     if artist_hit:  # «queen» -> только песни Queen, остальные источники не нужны
-        for t in list(fast.values()) + list(slow.values()):
+        for t in list(fast.values()) + list(slow.values()) + ([lyric] if lyric else []):
             if not t.done():
                 t.cancel()
         name, tracks = artist_hit
@@ -508,6 +580,23 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
         results = _merge(pool, canons, q, limit)
         if len(results) < 3:  # строгий фильтр оставил мало — ослабляем (например, строчка из песни)
             results = _merge(pool, canons, q, limit, strict=False)
+    # «исполнитель + название» в запросе — это не строчка из песни, поиск по тексту только внесёт шум
+    named = any(_norm(c.artist) in _norm(q) and _norm(c.title) in _norm(q) for c in canons_dz)
+    if lyric and not named:  # запрос мог быть строчкой из песни, а не названием: Genius ищет по словам из текста
+        await asyncio.wait([lyric], timeout=max(1.5, FAST_DEADLINE - (loop.time() - start)))
+        by_text = _done(lyric)
+        if by_text:
+            top = [SearchResult(id=f"ly{i}", title=c.title, artist=c.artist, duration=c.duration,
+                                url=_lazy_url(c), thumb_url=c.thumb, source="top", verified=True)
+                   for i, c in enumerate(by_text)]
+            rest = [r for r in results if not any(_norm(r.title) == _norm(c.title) and _artist_ok(r, c)
+                                                  for c in by_text)]
+            # по названию ничего не нашлось -> песня по тексту первая; нашлось (часто чужие загрузки) -> второй
+            at = 0 if not canons_dz else min(1, len(rest))
+            results = (rest[:at] + top + rest[at:])[: 14 if deep else limit]
+            logging.info("поиск по тексту %r: %s", q, "; ".join(f"{c.artist} - {c.title}" for c in by_text))
+    if lyric and not lyric.done():
+        lyric.cancel()
     hint = ""
     if not results and canons:
         hint = f"{canons[0].artist} — {canons[0].title}"
