@@ -90,6 +90,7 @@ def test_spotify_playlist_is_read_from_the_embed_page(monkeypatch):
     assert [(t.artist, t.title, t.duration, t.url) for t in pl.tracks] == [
         ("Olivia Rodrigo, Chappell Roan", "expectations (feat. Chappell Roan)", 223, ""),
         ("ADÉLA", "Nicole Kidman", 181, ""),
+        ("X", "Gone", 1, ""),  # «недоступна» в Spotify из страны сервера — на YouTube может быть, оставляем
     ]
 
 
@@ -135,6 +136,7 @@ def test_youtube_music_playlist_keeps_video_links(monkeypatch):
     pl = playlists.read("youtube", "PLxxxxxxxxxx")
     assert [(t.artist, t.title, t.url) for t in pl.tracks] == [
         ("Imagine Dragons", "Believer", "https://www.youtube.com/watch?v=7wtfhZwyrcc"),
+        ("", "Gone", ""),  # ролик недоступен — песня остаётся и ищется по названию
         ("A", "Chart song", ""),  # без ролика — найдётся по названию
     ]
 
@@ -345,7 +347,7 @@ async def test_spotify_name_with_a_tail_finds_the_short_youtube_version(monkeypa
 
     asked = []
 
-    async def fake_search(query, limit=8, deep=False, fast_only=False):
+    async def fake_search(query, limit=8, deep=False, fast_only=False, fresh=False):
         asked.append(query)
         return Outcome([result("Draw You Out", "Noah Kahan", 255, url="https://www.youtube.com/watch?v=abc")])
 
@@ -394,7 +396,7 @@ async def test_latin_artist_from_spotify_finds_the_cyrillic_youtube_upload(monke
     from musicbot.search import fetch
     from musicbot.search.models import Outcome
 
-    async def fake_search(query, limit=8, deep=False, fast_only=False):
+    async def fake_search(query, limit=8, deep=False, fast_only=False, fresh=False):
         return Outcome(
             [
                 result("Группа крови", "Хэт", 290, url="https://www.youtube.com/watch?v=cover"),  # чужая песня
@@ -423,7 +425,7 @@ async def test_mix_cut_from_spotify_is_found_even_if_its_length_differs(monkeypa
     from musicbot.search import fetch
     from musicbot.search.models import Outcome
 
-    async def fake_search(query, limit=8, deep=False, fast_only=False):
+    async def fake_search(query, limit=8, deep=False, fast_only=False, fresh=False):
         return Outcome(
             [result("Monument [True Electric] (feat. Robyn)", "Röyksopp", 415, url="https://www.youtube.com/watch?v=m")]
         )
@@ -453,7 +455,7 @@ async def test_song_with_guests_is_searched_by_the_main_artist_first(monkeypatch
 
     asked = []
 
-    async def fake_search(query, limit=8, deep=False, fast_only=False):
+    async def fake_search(query, limit=8, deep=False, fast_only=False, fresh=False):
         asked.append(query)
         if query == "Gorillaz Clint Eastwood":
             return Outcome([result("Clint Eastwood", "Gorillaz, Del The Funky Homosapien", 341, url="https://y/album")])
@@ -471,7 +473,7 @@ async def test_full_artist_list_is_tried_when_the_main_artist_finds_nothing(monk
 
     asked = []
 
-    async def fake_search(query, limit=8, deep=False, fast_only=False):
+    async def fake_search(query, limit=8, deep=False, fast_only=False, fresh=False):
         asked.append(query)
         if "Robyn" in query:
             return Outcome([result("Monument", "Röyksopp & Robyn", 415, url="https://y/m")])

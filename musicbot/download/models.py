@@ -19,6 +19,7 @@ class SearchResult:
     verified: bool = False  # совпал с записью каталога (Deezer/iTunes)
     label: str = ""  # тип версии: Original, Remix, Live, Slowed…
     exact: bool = False  # точный трек: то же название и исполнитель без пометок, длительность как в каталоге
+    loose: bool = False  # подобрана с мягкой проверкой длины: после скачивания сверяем с её собственной длиной
 
 
 @dataclass

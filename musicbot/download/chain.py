@@ -30,6 +30,11 @@ YT_BLOCK_TTL = 120  # секунд помним, что YouTube нас реже�
 _yt_blocked_until = 0.0
 
 
+def youtube_block_left() -> float:
+    """Сколько секунд ещё пропускаем YouTube после блокировки IP («not a bot»); 0 — не пропускаем."""
+    return max(0.0, _yt_blocked_until - time.time())
+
+
 def _strategies(url: str, kind: str, meta: SearchResult | None, fallbacks: bool = True):
     """Способы скачивания по порядку: (имя, функция, ходит_ли_в_YouTube).
     fallbacks=False — без запасных по названию (их запускают отдельно, один раз: url="title://")."""

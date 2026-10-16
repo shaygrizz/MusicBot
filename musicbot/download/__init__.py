@@ -1,6 +1,6 @@
 """Скачивание: цепочка способов, проверка файла, запасные источники."""
 
-from .chain import download, init
+from .chain import download, init, youtube_block_left
 from .fallbacks import hitmo_download
 from .media import fetch_thumb, probe_duration
 from .models import MAX_SIZE, Downloaded, SearchResult
@@ -27,4 +27,5 @@ __all__ = [
     "small_thumb",
     "stream_source",
     "warm",
+    "youtube_block_left",
 ]

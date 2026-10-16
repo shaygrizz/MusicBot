@@ -91,13 +91,16 @@ def _remember(key: tuple, out: Outcome) -> None:
     _search_cache[key] = (time.time() + (PARTIAL_TTL if out.partial else CACHE_TTL), out)
 
 
-async def search(query: str, limit: int = 8, deep: bool = False, fast_only: bool = False) -> Outcome:
+async def search(
+    query: str, limit: int = 8, deep: bool = False, fast_only: bool = False, fresh: bool = False
+) -> Outcome:
+    """fresh=True — не брать сохранённую выдачу: прошлая была неполной (источник не успел ответить)."""
     key = (clean_query(query).lower() or query.strip().lower(), limit, deep, fast_only)
     hit = _search_cache.get(key)
-    if hit and time.time() < hit[0]:
+    if hit and time.time() < hit[0] and not fresh:
         return hit[1]
     db_key = DB_KEY_VERSION + "|".join(map(str, key))
-    stored = await _from_db(db_key)
+    stored = None if fresh else await _from_db(db_key)
     if stored is not None:
         _remember(key, stored)
         return stored

@@ -41,7 +41,9 @@ def same_artist(a: str, b: str) -> bool:
     x, y = latin(a), latin(b)
     if not x or not y:
         return False
-    if x in y or y in x:
+    if x == y:
+        return True
+    if min(len(x), len(y)) >= 4 and (x in y or y in x):  # «u2» не должно совпадать с «theu2tributeband»
         return True
     return min(len(x), len(y)) >= 5 and SequenceMatcher(None, x, y).ratio() >= 0.7  # короткие имена — только точно
 
@@ -51,7 +53,7 @@ def same_artist(a: str, b: str) -> bool:
 # точное совпадение не находится. «- Acoustic Version», «- Live» и т.п. не трогаем: это другие записи
 _CATALOG_SUFFIX_RE = re.compile(
     r"\s+[-–—]\s+(?:from\b|(?:\d{4}\s+)?remaster|radio\s+edit|single\s+version|album\s+version|original\s+version|"
-    r"mono\b|stereo\b|bonus\s+track|edit\b|mixed\b|mix\s+cut\b).*$",
+    r"mono\b|stereo\b|bonus\s+track|edit\b|mixed\b|mix\s+cut\b|recorded\s+at\b|spotify\s+(?:singles|sessions)\b).*$",
     re.I,
 )
 # «Song - Mixed», «Song - Mix Cut»: версия из альбома-микса, обрезанная под переходы между песнями

@@ -11,6 +11,7 @@ from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarku
 from . import db, download, favcache, search, texts
 
 SEND_TRIES = 4  # столько раз ждём, если Telegram просит притормозить (много песен подряд из кэша)
+BLOCK_WAIT_MAX = 150  # секунд: дольше блокировку YouTube не ждём (обычно она 2 минуты)
 
 
 def fav_keyboard(play_id: int, is_fav: bool) -> InlineKeyboardMarkup:
@@ -70,7 +71,18 @@ async def prepare_track(user_id: int, item: dict) -> dict:
             id="", title=item["title"], artist=item["artist"], duration=item["duration"], url=key,
             thumb_url=item.get("cover") or "",
         )  # fmt: skip
-        d = await search.fetch_audio(key, meta)
+        try:
+            d = await search.fetch_audio(key, meta)
+        except Exception as e:
+            # YouTube закрыл IP на пару минут («not a bot»), и песня не скачалась только поэтому: ждём, пока
+            # блокировка пройдёт, и пробуем ещё раз. Песня остаётся на своём месте в чате, а не уходит в конец
+            wait = download.youtube_block_left()
+            if not wait:
+                raise
+            logging.info("YouTube временно закрыт: ждём %.0f с и пробуем %s - %s ещё раз (%s)", wait, meta.artist,
+                         meta.title, str(e)[:80])  # fmt: skip
+            await asyncio.sleep(min(wait + 2, BLOCK_WAIT_MAX))
+            d = await search.fetch_audio(key, meta)
     return {"lazy": source_key(item), "cover": item.get("cover") or "", "cached": cached, "d": d}
 
 

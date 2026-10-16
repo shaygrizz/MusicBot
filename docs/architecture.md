@@ -64,6 +64,29 @@ too many raise the risk of the "not a bot" IP block.
 A stream that started through the proxy keeps using it: the cached file is remuxed and its bytes differ, so a seek
 must not switch sources mid-play.
 
+## Finding a version by name (`search/fetch.py: resolve`)
+
+Catalog songs (Spotify, Deezer, favorites) have no YouTube link, so a version is looked up by name. The search goes
+from narrow to wide and stops at the first version that passes every check:
+
+1. main artist + title ("Gorillaz Clint Eastwood": with the guests in the query YouTube Music hides the album cut);
+2. all artists + title;
+3. title alone, for names of five letters or more (the artist is spelled differently on the platform);
+4. a full search with the slow sources;
+5. the same results again past the cache, if a fast source timed out;
+6. as a last resort, the length check relaxed to 20 s or 12 % (radio edit vs album). Such a version is marked
+   `loose`, and the downloaded file is compared with that version's own length.
+
+Checks (`reject_reason`), each strict on its own: the title without catalog tails ("- Remastered 2009",
+"- From …", "- Radio Edit", "- Mixed", "+ Guest"; also in Latin letters); a whole artist name, also across alphabets
+("Kino" / "Кино") and close spellings for names of five letters or more, short names only exactly; no remix, cover,
+sped-up or similar marker unless asked for; length within 8 s. "- Mixed" tracks skip the length check because the
+catalog gives the length of the cut inside the mix.
+
+A miss is logged with the closest results and why each was refused. `python -m musicbot.check_playlist <url>` runs the
+same search for a whole playlist without downloading and prints every miss with its reasons; run it on the server,
+since YouTube Music shows different catalogues by country.
+
 ## Playlists (`playlists.py`, `playlist_bot.py`)
 
 A playlist or album link is read into a list of tracks (artist, title, duration, YouTube link when known); nothing is

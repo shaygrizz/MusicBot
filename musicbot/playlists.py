@@ -109,9 +109,10 @@ def _artists(entry: dict) -> str:
 def _ytm_tracks(entries: list[dict]) -> list[Track]:
     out = []
     for e in entries:
-        if e.get("isAvailable") is False or not e.get("title"):
+        if not e.get("title"):
             continue
-        vid = e.get("videoId")
+        # ролик недоступен (удалён, закрыт в стране сервера) — песню не выбрасываем, а ищем по названию
+        vid = e.get("videoId") if e.get("isAvailable") is not False else None
         thumbs = e.get("thumbnails") or []
         out.append(
             Track(
@@ -186,7 +187,9 @@ def read_spotify(kind: str, sid: str) -> Playlist:
     cover = covers[0]["url"] if covers else ""
     tracks = []
     for t in entity.get("trackList") or []:
-        if t.get("isPlayable") is False or not t.get("title"):
+        # подкасты и выпуски шоу — не песни. «Недоступна» (isPlayable False) относится к Spotify в стране сервера,
+        # а не к YouTube: такие песни оставляем, иначе они молча пропадали бы из плейлиста
+        if not t.get("title") or (t.get("entityType") or "track") != "track":
             continue
         artist = ", ".join(a.strip() for a in (t.get("subtitle") or "").replace("\xa0", " ").split(",") if a.strip())
         tracks.append(Track(artist, t["title"], int(t.get("duration") or 0) // 1000, "", cover))
