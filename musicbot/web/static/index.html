@@ -155,6 +155,11 @@
   .textbtn { display: block; width: 100%; margin-top: var(--s3); padding: var(--s4) var(--s2); border: 0; border-top: 1px solid var(--rule); background: none; color: var(--text); font-weight: 500; cursor: pointer; }
   .favrow { display: grid; grid-template-columns: 1fr auto; gap: var(--s3); align-items: baseline; width: 100%; padding: var(--s3) 0; border: 0; border-top: 1px solid var(--rule); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
   .favlist .favrow:last-child { border-bottom: 1px solid var(--rule); }
+  /* над списком слева: «Mix» и повтор; сдвиг влево ставит значок вровень с текстом (значок 24 в кнопке 48) */
+  .favtools { display: flex; gap: var(--s1); margin: 0 0 var(--s1) -12px; }
+  .favtools[hidden] { display: none; }
+  .favrow.now .nm { color: var(--rose); }
+  .favrow.now .nm::before { content: "▶"; display: inline-block; width: 1.2em; font-size: .75em; vertical-align: .1em; }
 
   /* плейлист любимого: быстрая кнопка и плеер внизу */
   .quick { margin-top: var(--s5); }
@@ -183,6 +188,7 @@
   .times { display: flex; justify-content: space-between; color: var(--text2); font-size: var(--t-meta); }
   .ctrl { display: grid; grid-template-columns: 1fr auto auto auto 1fr; align-items: center; justify-items: center; margin-top: var(--s2); }
   .ctrl .tog { justify-self: end; }
+  .ctrl .tog:first-child { justify-self: start; }  /* «Mix» слева, повтор справа */
   .ico { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; background: none; color: var(--text); cursor: pointer; }
   .ico svg { width: 24px; height: 24px; fill: currentColor; }
   .ico.main { width: 60px; height: 60px; border-radius: 50%; background: var(--rose); color: var(--on-rose); }
@@ -357,24 +363,45 @@ function gem(url) {
   g.append(inner); return g;
 }
 
+// a tap on a saved song plays it right away (the saved original, no version search), then the rest of the list
 function favList() {
   const wrap = $("div", "favlist");
   if (!state.favs.length) { wrap.append($("p", "note", "No tracks yet.")); return wrap; }
-  state.favs.forEach(f => {
+  state.favs.forEach((f, i) => {
     const b = $("button", "favrow"), box = $("div", "nm");
     box.append(document.createTextNode(f.title), $("span", "sb", f.artist || "Unknown artist"));
     b.append(box, $("span", "ct", mmss(f.duration)));
-    b.setAttribute("aria-label", `${f.title}, ${f.artist}`);
-    b.onclick = () => openTrack(f);
+    b.setAttribute("aria-label", `Play ${f.title}, ${f.artist}`);
+    b.dataset.key = f.key;
+    b.onclick = () => startFavorites(mix.on, i);
     wrap.append(b);
   });
   return wrap;
 }
-function favBox() { const box = $("div"); box.id = "favs"; box.append(favList()); return box; }
+function favBox() {
+  const box = $("div"), tools = $("div", "favtools"), list = $("div");
+  tools.id = "favtools"; tools.hidden = !state.favs.length;
+  tools.append(mixButton(), repeatButton());
+  list.id = "favs"; list.append(favList());
+  box.append(tools, list);
+  return box;
+}
 function renderFavs() {
   const box = document.getElementById("favs");
   if (box) box.replaceChildren(favList());
+  const tools = document.getElementById("favtools");
+  if (tools) tools.hidden = !state.favs.length;
   fillQuick(document.getElementById("quick"));
+  markNow();
+}
+// the song that is playing stands out in the list
+function markNow() {
+  const it = player.bar && !player.bar.hidden ? player.items[player.i] : null;
+  document.querySelectorAll(".favrow").forEach(b => {
+    const on = !!it && b.dataset.key === it.key;
+    b.classList.toggle("now", on);
+    if (on) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
+  });
 }
 
 // favorites player: plays the whole list one track after another inside the page
@@ -387,7 +414,7 @@ function fillQuick(box) {
   box.replaceChildren();
   if (!state.favs.length) return;
   const play = $("button", "primary", `Play favorites (${state.favs.length})`), shuffle = $("button", "textbtn", "Shuffle");
-  play.onclick = () => startFavorites(false);
+  play.onclick = () => startFavorites(mix.on);
   shuffle.onclick = () => startFavorites(true);
   box.append(play, shuffle);
 }
@@ -398,26 +425,58 @@ const ICONS = {
 };
 // repeat: two arrows round a "1" (this one track again); drawn as outline, the other icons are filled
 const REPEAT = ["M4 11V9.5A2.5 2.5 0 0 1 6.5 7H18", "M15.5 4.5L18 7l-2.5 2.5", "M20 13v1.5a2.5 2.5 0 0 1-2.5 2.5H6", "M8.5 14.5L6 17l2.5 2.5", "M11 10.8l1.4-.9v4.3"];
+// mix: two crossing arrows, drawn the same way as repeat
+const SHUFFLE = ["M4 7h3.5L16.5 17H20", "M4 17h3.5l2.6-2.9", "M13.9 9.9L16.5 7H20", "M17.5 4.5L20 7l-2.5 2.5", "M17.5 14.5L20 17l-2.5 2.5"];
 function icon(name) {
   const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
-  if (name === "repeat") { for (const d of REPEAT) s.append(svg("path", { d })); return s; }
+  if (name === "repeat" || name === "shuffle") { for (const d of name === "repeat" ? REPEAT : SHUFFLE) s.append(svg("path", { d })); return s; }
   const p = svg("path", { d: name === "close" ? "M6 6l12 12M18 6L6 18" : ICONS[name] });
   if (name === "close") { p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "2"); }
   s.append(p); return s;
 }
-// one switch for both players: the track that is playing starts again when it ends
-const repeat = { on: false, buttons: new Set() };
-try { repeat.on = localStorage.getItem("repeatOne") === "1"; } catch (e) {}
-function repeatButton() {
-  const b = iconButton("repeat", "Repeat this track", "tog");
-  const show = () => { b.setAttribute("aria-pressed", repeat.on ? "true" : "false"); };
+// on/off switches shared by every copy of the button (list, bottom player, track sheet) and remembered on this device
+function toggle(key) {
+  const t = { on: false, buttons: new Set(), key };
+  try { t.on = localStorage.getItem(key) === "1"; } catch (e) {}
+  return t;
+}
+function toggleButton(t, name, label, changed) {
+  const b = iconButton(name, label, "tog");
+  const show = () => { b.setAttribute("aria-pressed", t.on ? "true" : "false"); };
   b.onclick = () => {
-    repeat.on = !repeat.on;
-    try { localStorage.setItem("repeatOne", repeat.on ? "1" : "0"); } catch (e) {}
-    for (const x of repeat.buttons) { if (x.isConnected) x.sync(); else repeat.buttons.delete(x); }  // players that were closed drop out
+    t.on = !t.on;
+    try { localStorage.setItem(t.key, t.on ? "1" : "0"); } catch (e) {}
+    for (const x of t.buttons) { if (x.isConnected) x.sync(); else t.buttons.delete(x); }  // players that were closed drop out
+    if (changed) changed();
   };
-  b.sync = show; show(); repeat.buttons.add(b);
+  b.sync = show; show(); t.buttons.add(b);
   return b;
+}
+// repeat: the track that is playing starts again when it ends
+const repeat = toggle("repeatOne");
+function repeatButton() { return toggleButton(repeat, "repeat", "Repeat this track"); }
+// mix: favorites play in random order; switching it while music plays reorders only what comes next
+const mix = toggle("mixOn");
+function mixButton() { return toggleButton(mix, "shuffle", "Mix", remix); }
+function shuffled(list) {
+  const a = list.slice();
+  for (let k = a.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [a[k], a[j]] = [a[j], a[k]]; }
+  return a;
+}
+function remix() {
+  const cur = player.bar && !player.bar.hidden ? player.items[player.i] : null;
+  if (!cur || !state.favs.length) return;
+  if (mix.on) {
+    player.items = [cur, ...shuffled(state.favs.filter(f => f.key !== cur.key))];
+    player.i = 0;
+  } else {
+    const at = state.favs.findIndex(f => f.key === cur.key);
+    player.items = state.favs.slice();
+    player.i = Math.max(0, at);
+  }
+  player.cache = {};  // the cache is by position in the queue, and the positions changed; the song playing is not touched
+  setNow(player.items[player.i], player.els.msg.textContent);
+  if (player.i + 1 < player.items.length) trackUrl(player.i + 1).catch(() => { delete player.cache[player.i + 1]; });
 }
 function iconButton(name, label, cls) {
   const b = $("button", "ico" + (cls ? " " + cls : ""));
@@ -440,12 +499,12 @@ function ensurePlayerBar() {
   const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
   const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
   const ctrl = $("div", "ctrl"), prev = iconButton("prev", "Previous track"), main = iconButton("play", "Play", "main"), next = iconButton("next", "Next track");
-  const loop = repeatButton(), gap = $("span");
+  const loop = repeatButton(), mixb = mixButton();
   const msg = $("div", "nowmsg"), hand = $("button", "textbtn", "Continue in chat");
   range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
   msg.setAttribute("role", "status");
   disc.append(discSvg()); info.append(title, sub); top.append(disc, info, close);
-  seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(gap, prev, main, next, loop);
+  seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(mixb, prev, main, next, loop);
   bar.append(top, seek, times, ctrl, msg, hand);
   document.body.append(bar); document.body.classList.add("withbar");
   Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand } });
@@ -508,6 +567,7 @@ async function playAt(i) {
   if (!it) { stopPlayer(); return; }
   player.i = i;
   setNow(it, "Loading…");
+  markNow();
   try {
     const url = await trackUrl(i);
     if (my !== player.token) return;
@@ -532,19 +592,24 @@ function maybeAutoplay() {
   const q = new URLSearchParams(location.search), mode = q.get("play");
   if (!mode) return;
   autoplayDone = true;
-  startFavorites(mode === "shuffle", Math.max(0, (parseInt(q.get("i"), 10) || 1) - 1));
+  if (mode === "shuffle") startFavorites(true);
+  else startFavorites(false, Math.max(0, (parseInt(q.get("i"), 10) || 1) - 1));
 }
 
-function startFavorites(shuffle, start = 0) {
+// start = null: the whole list (shuffled with mix); start = N: song N first, then the rest in order or mixed
+function startFavorites(shuffle, start = null) {
   if (!state.favs.length) return;
-  const items = state.favs.slice();
-  if (shuffle) for (let k = items.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [items[k], items[j]] = [items[j], items[k]]; }
+  const at = Math.min(Math.max(0, start ?? 0), state.favs.length - 1);
+  let items = state.favs.slice(), first = at;
+  if (shuffle && start === null) { items = shuffled(items); first = 0; }
+  else if (shuffle) { items = [state.favs[at], ...shuffled(state.favs.filter((_, k) => k !== at))]; first = 0; }
   Object.assign(player, { items, cache: {} });
+  if (sheetOpen) closeSheet();  // a track sheet must not keep its own player going over the queue
   ensurePlayerBar();
   player.au.src = SILENT; player.au.play().catch(() => {});  // the tap unlocks audio, so the next tracks can start by themselves
   // closing the page ends playback, so ask before it closes while music is on
   if (tg && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
-  playAt(Math.min(start, items.length - 1));
+  playAt(first);
 }
 
 // A closed page cannot play sound. Telegram's own player can, so hand the queue over to the chat.
@@ -565,6 +630,7 @@ function stopPlayer() {
   if (player.au) { player.au.pause(); player.au.removeAttribute("src"); player.au.load(); }
   if (player.bar) player.bar.hidden = true;
   document.body.classList.remove("withbar");
+  markNow();
   if (tg && tg.disableClosingConfirmation) tg.disableClosingConfirmation();
 }
 
