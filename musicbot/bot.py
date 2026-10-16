@@ -25,7 +25,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from . import db, download, favcache, favorites, playlist_bot, recognize, restore, search, texts, tunnel
+from . import db, download, favcache, favorites, paths, playlist_bot, recognize, restore, search, texts, tunnel
 from .access import ALLOWED, allowed
 from .web import app as webapp
 
@@ -203,7 +203,7 @@ async def restore_cmd(m: Message, bot: Bot):
     if not name.endswith((".db", ".zip")):
         await m.answer("Send musicbot.db or avatars.zip with the caption /restore.")
         return
-    workdir = download.DOWNLOAD_DIR / f"restore-{uuid.uuid4().hex[:8]}"
+    workdir = paths.DOWNLOAD_DIR / f"restore-{uuid.uuid4().hex[:8]}"
     workdir.mkdir(parents=True, exist_ok=True)
     try:
         src = workdir / ("incoming.db" if name.endswith(".db") else "incoming.zip")
@@ -346,7 +346,7 @@ async def on_media(m: Message, bot: Bot):
         await m.answer(texts.say("input_too_big"))
         return
     status = await m.answer(texts.say("recognizing"))
-    workdir = download.DOWNLOAD_DIR / f"in_{uuid.uuid4().hex[:8]}"
+    workdir = paths.DOWNLOAD_DIR / f"in_{uuid.uuid4().hex[:8]}"
     workdir.mkdir(parents=True, exist_ok=True)
     try:
         src = workdir / "input"

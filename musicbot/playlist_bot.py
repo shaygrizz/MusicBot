@@ -12,7 +12,7 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from . import db, download, favcache, favorites, playlists, search, texts
+from . import db, download, favcache, favorites, paths, playlists, search, texts
 from .access import allowed
 
 router = Router()
@@ -331,7 +331,7 @@ async def _pull_files(bot: Bot, uid: int, items: list[dict]) -> None:
             continue  # такие сыграет кэш Telegram в чате; мини-апп при необходимости найдёт песню сам
         if favcache.has(uid, it["artist"], it["title"]):
             continue
-        dest = download.DOWNLOAD_DIR / f"fwd-{secrets.token_hex(5)}{it['suffix']}"
+        dest = paths.DOWNLOAD_DIR / f"fwd-{secrets.token_hex(5)}{it['suffix']}"
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
             await bot.download(it["file_id"], destination=dest)
