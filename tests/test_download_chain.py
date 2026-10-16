@@ -118,3 +118,25 @@ def test_fallback_sources_reach_their_providers(monkeypatch, tmp_path):
     assert path.read_bytes() == b"mp3" and info["extractor_key"] == "hitmo"
     path, info = fallbacks.audius_download("audius://abc", "audio", tmp_path)
     assert path.read_bytes() == b"mp3" and info["extractor_key"] == "Audius"
+
+
+def test_every_youtube_request_gets_cookies_js_runtime_and_ipv4(monkeypatch, tmp_path):
+    """Куки и JS-движок раньше получал только запасной способ скачивания, а основной путь шёл без них."""
+    from musicbot.download import youtube
+
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("# Netscape HTTP Cookie File")
+    monkeypatch.setattr(youtube, "COOKIES_FILE", cookies)
+    monkeypatch.setenv("YTDLP_JS_RUNTIME", "node")
+    monkeypatch.setattr(youtube, "FORCE_IPV4", True)
+    opts = youtube.youtube_opts({"quiet": True})
+    assert opts == {
+        "quiet": True,
+        "cookiefile": str(cookies),
+        "js_runtimes": {"node": {}},
+        "source_address": "0.0.0.0",
+    }
+    monkeypatch.setattr(youtube, "COOKIES_FILE", tmp_path / "missing.txt")
+    monkeypatch.delenv("YTDLP_JS_RUNTIME")
+    monkeypatch.setattr(youtube, "FORCE_IPV4", False)
+    assert youtube.youtube_opts({"quiet": True}) == {"quiet": True}

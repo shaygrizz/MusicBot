@@ -39,6 +39,24 @@ YT_AUDIO_FORMAT = (
 )
 
 
+COOKIES_FILE = paths.COOKIES  # необязательно: куки из браузера помогают против блокировок
+FORCE_IPV4 = os.getenv("YT_FORCE_IPV4", "1") != "0"
+
+
+def youtube_opts(opts: dict) -> dict:
+    """Общее для всех обращений к YouTube: куки (если положены в DATA_DIR), JS-движок для разбора страницы
+    и IPv4. Без этого YouTube чаще отвечает «Sign in to confirm you're not a bot»: подсетям IPv6 дата-центров
+    он доверяет меньше, а без JS-движка запросы выглядят не как у браузера."""
+    out = dict(opts)
+    if COOKIES_FILE.exists():
+        out["cookiefile"] = str(COOKIES_FILE)
+    if os.getenv("YTDLP_JS_RUNTIME"):  # в образе это Node.js
+        out["js_runtimes"] = {os.environ["YTDLP_JS_RUNTIME"]: {}}
+    if FORCE_IPV4:
+        out["source_address"] = "0.0.0.0"
+    return out
+
+
 # Информация о ролике (прямая ссылка на звук) живёт несколько часов — не извлекаем её дважды
 _info_cache: dict[str, tuple[float, dict]] = {}
 
@@ -54,7 +72,9 @@ def _yt_info(url: str) -> dict:
     hit = _info_cache.get(url)
     if hit and time.time() - hit[0] < INFO_TTL:
         return hit[1]
-    opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 12, "format": YT_AUDIO_FORMAT}
+    opts = youtube_opts(
+        {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 12, "format": YT_AUDIO_FORMAT}
+    )
     with _extract_slots:
         hit = _info_cache.get(url)  # пока ждали очереди, ссылку мог достать другой поток
         if hit and time.time() - hit[0] < INFO_TTL:
@@ -125,8 +145,6 @@ def fast_audio(url: str, workdir: Path) -> tuple[Path, dict]:
     return raw, info
 
 
-COOKIES_FILE = paths.COOKIES  # необязательно: куки из браузера помогают против блокировок
-
 ALT_YT_CLIENTS = ["tv", "web_safari", "mweb", "ios"]
 
 TOO_BIG = "File exceeds 50 MB"
@@ -148,10 +166,7 @@ def ytdlp_run(
         "extractor_retries": 2,
         "socket_timeout": 20,
     }
-    if COOKIES_FILE.exists():
-        opts["cookiefile"] = str(COOKIES_FILE)
-    if os.getenv("YTDLP_JS_RUNTIME"):  # YouTube просит JS-движок для разбора страницы; в образе это Node.js
-        opts["js_runtimes"] = {os.environ["YTDLP_JS_RUNTIME"]: {}}
+    opts = youtube_opts(opts)
     if kind == "audio":
         opts["format"] = "bestaudio[ext=m4a]/bestaudio/best"
     else:

@@ -12,6 +12,7 @@ import yt_dlp
 
 from . import net
 from .download import get_ytm
+from .download.youtube import youtube_opts
 
 MAX_TRACKS = int(os.getenv("PLAYLIST_MAX", "200"))  # больше за раз не читаем
 SPOTIFY_EMBED_LIMIT = 100  # встраиваемая страница Spotify отдаёт не больше стольких песен
@@ -126,7 +127,9 @@ def _ytm_tracks(entries: list[dict]) -> list[Track]:
 
 def _youtube_flat(list_id: str) -> Playlist:
     """Запасной путь: yt-dlp читает любой плейлист YouTube без скачивания; названия «сырые», их чистим."""
-    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True, "playlistend": MAX_TRACKS}
+    opts = youtube_opts(
+        {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True, "playlistend": MAX_TRACKS}
+    )
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(f"https://www.youtube.com/playlist?list={list_id}", download=False)
     tracks = []

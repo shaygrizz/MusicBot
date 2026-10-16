@@ -6,6 +6,7 @@ import re
 import yt_dlp
 
 from .models import SearchResult
+from .youtube import youtube_opts
 
 _ytm = None
 
@@ -56,7 +57,7 @@ def _search_ytm_sync(query: str, limit: int) -> list[SearchResult]:
 
 
 def search_ytdlp_sync(query: str, limit: int) -> list[SearchResult]:
-    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True}
+    opts = youtube_opts({"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True})
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
     results = []
