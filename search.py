@@ -292,6 +292,10 @@ def _lyric_candidates(q: str, fuzzy: bool = False) -> list[Canon]:
         return []
     with ThreadPoolExecutor(len(found)) as ex:
         rich = list(ex.map(_enrich, found))
+    # песни нет в Deezer — это не песня («New Music Friday» от Spotify, подборки, страницы Genius): отбрасываем
+    rich = [c for c in rich if c.rank > 0]
+    if not rich:
+        return []
     known = [c for c in rich if c.rank >= KNOWN_RANK]  # порядок Genius сохраняем: он лучше отражает совпадение текста
     if fuzzy:  # запрос с исправленными опечатками — это догадка, поэтому берём только известные песни
         return known[:1]
@@ -778,6 +782,11 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
         lyric.cancel()
     hint = ""
     if not results and canons:
+        # скачиваемого не нашлось (источники медленные или закрыты), но песня есть в каталоге: источник подберётся при нажатии
+        clean = [c for c in canons if _clean_canon(c)] or canons
+        results = [SearchResult(id=f"cn{i}", title=c.title, artist=c.artist, duration=c.duration,
+                                url=_lazy_url(c), thumb_url=c.thumb, source="top", verified=True)
+                   for i, c in enumerate(clean[:3])]
         hint = f"{canons[0].artist} — {canons[0].title}"
     return Outcome(results, hint, q)
 
