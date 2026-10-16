@@ -55,6 +55,7 @@ MIGRATIONS = [
     ("users", "avatar_token", "TEXT"),
     ("users", "bg_token", "TEXT"),
     ("plays", "cover", "TEXT"),
+    ("favorites", "url", "TEXT"),  # ссылка на источник (песня из плейлиста YouTube): качаем по ней, без поиска
 ]
 
 
@@ -173,15 +174,19 @@ async def admin_user(user_id: int) -> dict:
     return {"plays": plays, "favorites": await fav_list(user_id, 100)}
 
 
-async def fav_list(user_id: int, limit: int = 200) -> list[dict]:
+FAV_LIMIT = 2000  # после добавления плейлистов избранное бывает большим; список не должен молча обрезаться
+
+
+async def fav_list(user_id: int, limit: int = FAV_LIMIT) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "SELECT id, key, title, artist, duration, cover FROM favorites WHERE user_id=? ORDER BY id DESC LIMIT ?",
+            "SELECT id, key, title, artist, duration, cover, url FROM favorites WHERE user_id=? ORDER BY id DESC LIMIT ?",
             (user_id, limit),
         )
         rows = await cur.fetchall()
     return [
-        {"id": i, "key": k, "title": t, "artist": a, "duration": d or 0, "cover": c or ""} for i, k, t, a, d, c in rows
+        {"id": i, "key": k, "title": t, "artist": a, "duration": d or 0, "cover": c or "", "url": u or ""}
+        for i, k, t, a, d, c, u in rows
     ]
 
 
@@ -191,13 +196,36 @@ async def fav_has(user_id: int, artist: str, title: str) -> bool:
         return await cur.fetchone() is not None
 
 
-async def fav_add(user_id: int, artist: str, title: str, duration: int = 0, cover: str = "") -> None:
+async def fav_add(user_id: int, artist: str, title: str, duration: int = 0, cover: str = "", url: str = "") -> None:
+    await fav_add_many(user_id, [{"artist": artist, "title": title, "duration": duration, "cover": cover, "url": url}])
+
+
+async def fav_add_many(user_id: int, items: list[dict]) -> int:
+    """Добавляет пачку песен одной транзакцией (плейлист). Уже добавленные пропускаются. Возвращает, сколько новых."""
+    now = int(time.time())
+    rows = [
+        (
+            user_id,
+            fav_key(it["artist"], it["title"]),
+            it["title"],
+            it["artist"],
+            it.get("duration") or 0,
+            it.get("cover") or "",
+            it.get("url") or "",
+            now,
+        )
+        # список избранного идёт от новых к старым, поэтому вставляем с конца: первая песня плейлиста окажется сверху
+        for it in reversed(items)
+        if it.get("title")
+    ]
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO favorites(user_id, key, title, artist, duration, cover, ts) VALUES (?,?,?,?,?,?,?)",
-            (user_id, fav_key(artist, title), title, artist, duration, cover, int(time.time())),
+        before = db.total_changes
+        await db.executemany(
+            "INSERT OR IGNORE INTO favorites(user_id, key, title, artist, duration, cover, url, ts) VALUES (?,?,?,?,?,?,?,?)",
+            rows,
         )
         await db.commit()
+        return db.total_changes - before
 
 
 async def fav_remove(user_id: int, artist: str, title: str) -> None:

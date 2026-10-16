@@ -25,11 +25,11 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from . import db, download, favcache, favorites, recognize, search, texts, tunnel
+from . import db, download, favcache, favorites, playlist_bot, recognize, search, texts, tunnel
+from .access import ALLOWED, allowed
 from .web import app as webapp
 
 TOKEN = os.getenv("BOT_TOKEN", "")
-ALLOWED = {int(x) for x in os.getenv("ALLOWED_USERS", "").replace(" ", "").split(",") if x}
 WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", "8080"))
 webapp_url = os.getenv("WEBAPP_URL", "").strip().rstrip("/")  # свой https-адрес, если есть; иначе туннель
 
@@ -41,10 +41,6 @@ deep_queries: dict[str, str] = {}  # токен кнопки «Искать гл
 prefetch: dict[str, tuple[float, asyncio.Task]] = {}
 PREFETCH_TOP = 2
 PREFETCH_TTL = 600  # секунд, дальше файл считаем ненужным
-
-
-def allowed(user_id: int) -> bool:
-    return not ALLOWED or user_id in ALLOWED
 
 
 def _drop_prefetch(url: str) -> None:
@@ -349,7 +345,11 @@ async def on_text(m: Message):
         if is_music_video(url):
             await run_link_music(m, url)
             return
-        await m.answer(texts.say("ask_link"), reply_markup=link_keyboard(url))
+        kb = link_keyboard(url)
+        whole = playlist_bot.whole_playlist_button(url)  # песня из плейлиста: можно взять и весь список
+        if whole:
+            kb.inline_keyboard.append([whole])
+        await m.answer(texts.say("ask_link"), reply_markup=kb)
         return
 
     await run_search(m, text)
@@ -621,7 +621,7 @@ async def on_download(cb: CallbackQuery, bot: Bot):
 async def setup_webapp(bot: Bot, bot_username: str):
     """Поднимает локальный сервер дашборда, туннель (если нет своего адреса) и кнопку меню."""
     global webapp_url
-    await webapp.start(bot, TOKEN, bot_username, ALLOWED, WEBAPP_PORT)
+    runner = await webapp.start(bot, TOKEN, bot_username, ALLOWED, WEBAPP_PORT)
     tun = None
     if not webapp_url:
         tun = await tunnel.start(WEBAPP_PORT)
@@ -629,7 +629,7 @@ async def setup_webapp(bot: Bot, bot_username: str):
             webapp_url = tun[1]
     if not webapp_url:
         logging.warning("Дашборд работает только локально: нет cloudflared и WEBAPP_URL")
-        return None
+        return runner, None
     try:
         await bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(text=texts.say("menu_button"), web_app=WebAppInfo(url=webapp_url))
@@ -637,7 +637,7 @@ async def setup_webapp(bot: Bot, bot_username: str):
     except Exception:
         logging.exception("не удалось установить кнопку меню")
     logging.info("Дашборд: %s", webapp_url)
-    return tun[0] if tun else None
+    return runner, (tun[0] if tun else None)
 
 
 async def main():
@@ -649,6 +649,7 @@ async def main():
     warm_task = asyncio.create_task(search.keep_warm())  # noqa: F841 — прогрев: поиск идёт по готовым соединениям
     bot = Bot(TOKEN)
     dp = Dispatcher()
+    dp.include_router(playlist_bot.router)  # раньше общего: ссылки на плейлисты и пересланные песни
     dp.include_router(router)
     me = await bot.get_me()
     logging.info("Бот запущен: @%s", me.username)
@@ -666,9 +667,10 @@ async def main():
         await bot.set_my_short_description(texts.say("bot_short"))
     except Exception:
         logging.exception("не удалось обновить описание бота")
-    tunnel_proc = await setup_webapp(bot, me.username)
+    runner, tunnel_proc = await setup_webapp(bot, me.username)
     try:
         await dp.start_polling(bot)
     finally:
         if tunnel_proc and tunnel_proc.returncode is None:
             tunnel_proc.terminate()
+        await runner.cleanup()  # закрывает и общий ClientSession мини-аппа (on_cleanup)

@@ -64,6 +64,30 @@ too many raise the risk of the "not a bot" IP block.
 A stream that started through the proxy keeps using it: the cached file is remuxed and its bytes differ, so a seek
 must not switch sources mid-play.
 
+## Playlists (`playlists.py`, `playlist_bot.py`)
+
+A playlist or album link is read into a list of tracks (artist, title, duration, YouTube link when known); nothing is
+downloaded at that point. Each track then goes through the usual path, one at a time.
+
+| Source | How the list is read |
+|---|---|
+| YouTube / YouTube Music playlist | `ytmusicapi.get_playlist` (clean names), falling back to yt-dlp without downloading (raw titles, cleaned) |
+| YouTube Music album (`OLAK5uy_…`, `browse/MPRE…`) | `ytmusicapi.get_album` |
+| Spotify playlist or album | the public embed page, no developer key; at most 100 tracks, and the bot says when the list was cut |
+
+Tracks with a YouTube link are downloaded by that link; the others are found by name like catalog songs. Auto-mixes
+(`RD…`), Liked and Watch Later are refused. A song shared from a playlist (`watch?v=…&list=…`) stays a song, with an
+extra "Whole playlist" button.
+
+Sending reuses the favorites sender (`favorites.send_tracks`): batches of `PLAYLIST_BATCH`, in reverse so the first
+song plays first, the next song prepared while the current one uploads, a wait-and-retry when Telegram answers
+"retry after", and a Stop button checked between songs. One playlist per user and `PLAYLIST_JOBS` across all users.
+
+Audio forwarded from other bots or chats is not recognized again: the bot collects the files for two seconds of quiet,
+shows one message, and on "Add to favorites" stores each Telegram `file_id` under the same cache key favorites use, so
+the songs play in chat without touching YouTube. Files up to 20 MB are also copied into the favorites cache for the
+Mini App. Forwarded audio without a title falls through to recognition.
+
 ## Mini App (`musicbot/web`)
 
 Every API request carries Telegram's signed `initData` in `X-Init-Data`. The server verifies the HMAC with the bot

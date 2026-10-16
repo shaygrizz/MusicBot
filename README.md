@@ -13,6 +13,8 @@ Search by title, artist, a remembered lyric line, a link, or a voice/video messa
 - **Lyrics and typo tolerance.** Find a song from a line you remember; misspelled titles and artist names are corrected.
 - **Recognition.** Identify a song from voice, audio, video, or a TikTok/Instagram link (ShazamIO).
 - **Resilient downloads.** Each track falls back through multiple sources, and the downloaded file length is checked against the catalog.
+- **Playlists and albums.** Send a YouTube, YouTube Music or Spotify playlist or album link: the bot lists the songs, sends them to the chat in batches (with Stop) or adds them all to favorites.
+- **Songs from other bots.** Forward audio from other bots or chats; the bot collects them and adds them to favorites, playing them from Telegram's own copy.
 - **Mini App dashboard.** Favorites, listening stats, a full player with repeat, and hand-off to chat playback.
 
 ## Stack
@@ -45,12 +47,18 @@ Song recognition additionally needs `shazamio` (see `requirements-docker.txt`).
 | `AUDIO_QUALITY` | `fast` for smaller, quicker files |
 | `DATA_DIR` | Where the database, avatars, favorites cache and `cookies.txt` live |
 | `SEARCH_FAST_DEADLINE` | Seconds to wait for fast sources (default `3`); raise it on slow hosts |
+| `PLAYLIST_BATCH` | Songs sent per tap from a playlist (default `10`) |
+| `PLAYLIST_MAX` | Most songs read from one playlist link (default `200`) |
+| `PLAYLIST_JOBS` | Playlists sent at the same time across all users (default `2`) |
+| `FAV_CACHE_MB` | Disk space for the favorites audio cache (default `1500`) |
 
 ## Project layout
 
 ```
 musicbot/
   bot.py            Telegram handlers and startup
+  playlist_bot.py   playlist links and forwarded songs (handlers)
+  playlists.py      reading YouTube, YouTube Music and Spotify playlists
   search/           queries, catalogs, exact-track ranking, lyrics, versions, fetch with fallbacks
   download/         fallback chain, YouTube access, media checks
   providers/        hitmotop and Audius clients

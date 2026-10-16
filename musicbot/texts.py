@@ -2,14 +2,19 @@
 
 LINES: dict[str, str] = {
     "start": (
-        "Send a track name, a line from a song, or a link (YouTube, TikTok, Instagram, SoundCloud).\n\n"
+        "Send a track name, a line from a song, or a link (YouTube, TikTok, Instagram, SoundCloud).\n"
+        "Playlists and albums from YouTube, YouTube Music and Spotify work too, "
+        "and you can forward songs from other bots to save them.\n\n"
         "/app dashboard\n"
         "/stats your stats\n"
         "/help usage"
     ),
     "help": (
         "Send a track name, lyrics or a link, then choose a result.\n"
-        "Links offer audio or video.\n\n"
+        "Links offer audio or video.\n"
+        "A playlist or album link (YouTube, YouTube Music, Spotify) lists its songs: send them to the chat "
+        "or add them all to favorites.\n"
+        "Forward songs from other bots to add them to your favorites.\n\n"
         "/app dashboard\n"
         "/stats your stats"
     ),
@@ -76,6 +81,30 @@ LINES: dict[str, str] = {
     "cmd_stats": "Your stats",
     "cmd_help": "How to use",
     "cmd_start": "Start",
+    "pl_reading": "Reading playlist…",
+    "pl_read_fail": "Could not read this playlist. It may be private or the link may be wrong.",
+    "pl_empty": "This playlist has no tracks that can be downloaded.",
+    "pl_title": "<b>{title}</b>, {n} tracks",
+    "pl_cut": "Only the first {n} tracks are available from this link.",
+    "pl_rest": "...and {n} more.",
+    "pl_send": "⬇ Send to chat ({n})",
+    "pl_fav": "☆ Add all {n} to favorites",
+    "pl_cancel": "✕ Cancel",
+    "pl_whole": "📃 Whole playlist",
+    "pl_stop": "■ Stop",
+    "pl_stopping": "Stopping…",
+    "pl_stopped": "Stopped.",
+    "pl_queued": "Waiting in line: other playlists are being sent right now…",
+    "pl_busy": "Already sending a playlist. Wait for it to finish or tap Stop.",
+    "pl_done": "Sent {sent} of {n}.",
+    "pl_failed": "{n} could not be found or downloaded.",
+    "pl_left": "{n} tracks left.",
+    "pl_next": "▶ Next {n}",
+    "pl_send_fail": "Sending the playlist failed. Try again.",
+    "pl_fav_done": "Added {n} of {total} to favorites (the rest were already there). They download in the background.",
+    "in_title": "<b>Received {n} tracks</b>",
+    "in_fav": "☆ Add {n} to favorites",
+    "in_done": "Added {n} of {total} tracks to favorites.",
 }
 
 
