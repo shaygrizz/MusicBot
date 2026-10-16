@@ -118,6 +118,8 @@ ARTIST_WORDS_RE = re.compile(
     r"песни|песня|лучшее|лучшие|хиты|группа|музыка|треки|дискография)\b", re.I)
 
 
+FUZZY_ARTIST_FANS = 30_000  # имя с опечаткой принимаем только у исполнителя с таким числом поклонников
+FUZZY_ARTIST_RATIO = 0.85  # и похожестью имени не ниже этой
 SONG_OVER_ARTIST_FANS = 200_000  # у исполнителя с таким именем меньше поклонников, чем у одноимённой песни
 SONG_MIN_RANK = 500_000  # и рейтинг песни в Deezer не ниже этого
 
@@ -139,6 +141,11 @@ def _deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
         except Exception:
             tracks = []
     exact = [a for a in data.get("data", []) if _norm(a["name"]) == name_q]
+    if not any((a.get("nb_fan") or 0) >= FUZZY_ARTIST_FANS for a in exact):
+        # опечатка в имени («kendric lamar», «eminm»): Deezer её прощает, берём похожее имя, но только у заметных исполнителей —
+        # иначе песня с похожим названием сошла бы за исполнителя. Пустые исполнители-двойники («Travis Scot») не мешают
+        exact += [a for a in data.get("data", []) if a not in exact and (a.get("nb_fan") or 0) >= FUZZY_ARTIST_FANS
+                  and SequenceMatcher(None, _norm(a["name"]), name_q).ratio() >= FUZZY_ARTIST_RATIO]
     if not exact:
         return None
     artist = max(exact, key=lambda a: a.get("nb_fan") or 0)  # исполнителей с одним именем много — берём самого известного
