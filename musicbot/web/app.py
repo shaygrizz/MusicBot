@@ -23,6 +23,7 @@ from .. import audiocache, db, download, favcache, net, paths, search
 from .. import favorites as favlib  # внутри make_app есть обработчик с именем favorites
 from ..download import Downloaded, SearchResult
 from ..search import fetch as fetch_mod
+from ..textutil import same_artist
 
 INDEX = Path(__file__).parent / "static" / "index.html"
 INITDATA_MAX_AGE = 24 * 3600  # старше суток подпись не принимаем
@@ -226,6 +227,9 @@ async def _prefetch_version(uid: int, vid: str, r: SearchResult) -> None:
         await _get_file(uid, vid, r)
     except Exception as e:
         logging.info("webapp: предзагрузка версии не удалась %s: %s", r.url, str(e)[:120])
+
+
+YT_WATCH_RE = re.compile(r"^https://www\.youtube\.com/watch\?v=[\w-]{11}$")
 
 
 def _is_youtube(url: str) -> bool:
@@ -470,6 +474,53 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             raise web.HTTPBadRequest(text="bad op")
         return web.json_response({"favorites": await db.fav_list(user["id"])})
 
+    async def track(request: web.Request):
+        """Звук любой песни из дашборда (Top tracks, Recent, песни исполнителя): по ссылке YouTube, если она
+        известна, иначе поиском по названию. Песня ложится в общий кэш и в следующий раз играет сразу."""
+        user = await authed_user(request)
+        _purge()
+        body = await request.json()
+        artist, title = str(body.get("artist", ""))[:100], str(body.get("title", ""))[:150]
+        if not title:
+            raise web.HTTPBadRequest(text="no title")
+        duration = int(body.get("duration") or 0)
+        url = str(body.get("url") or "")
+        # от страницы принимаем только ролик YouTube или «ленивую» ссылку на песню; остальное ищем по названию
+        if not (YT_WATCH_RE.match(url) or url.startswith("lazy://")):
+            url = search.lazy_for(artist, title, duration)
+        cover = str(body.get("cover") or "")
+        r = SearchResult(
+            id="", title=title, artist=artist, duration=duration, url=url,
+            thumb_url=cover if cover.startswith("https://") else "",
+        )  # fmt: skip
+        try:
+            tok, d = await _get_file(user["id"], "track:" + url, r)
+        except Exception as e:
+            logging.warning("webapp: песня не скачалась %s - %s: %s", artist, title, str(e)[:150])
+            raise web.HTTPBadGateway(text="download failed")
+        if tok not in played:
+            played.add(tok)
+            await db.log_play(user["id"], d.title, d.artist, d.duration, d.source, url, "audio", r.thumb_url)
+        return web.json_response({"url": f"/api/file/{tok}"})
+
+    async def artist_songs(request: web.Request):
+        """Песни исполнителя для выбора в дашборде: его самые популярные треки из каталога."""
+        await authed_user(request)
+        name = str(request.query.get("name", "")).strip()[:100]
+        if not name:
+            raise web.HTTPBadRequest(text="no name")
+        out = await search.search(name, 12)
+        songs = out.results if out.kind == "artist" else [r for r in out.results if same_artist(name, r.artist)]
+        return web.json_response(
+            {
+                "artist": out.artist or name,
+                "items": [
+                    {"title": r.title, "artist": r.artist, "duration": r.duration, "url": r.url, "cover": r.thumb_url}
+                    for r in songs[:15]
+                ],
+            }
+        )
+
     async def recs(request: web.Request):
         user = await authed_user(request)
         return web.json_response({"items": await _recs(user["id"])})
@@ -693,6 +744,8 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             web.get("/fav/{tok}", serve_fav),
             web.post("/api/handoff", handoff),
             web.get("/api/recs", recs),
+            web.post("/api/track", track),
+            web.get("/api/artist", artist_songs),
             web.post("/api/resolve", resolve),
             web.post("/api/fetch", fetch),
             web.get("/api/file/{tok}", serve_file),

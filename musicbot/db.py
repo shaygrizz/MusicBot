@@ -334,13 +334,16 @@ async def dashboard(user_id: int) -> dict:
             "WHERE user_id=? AND artist != '' GROUP BY artist ORDER BY c DESC, 3 DESC LIMIT 8",
             user_id,
         )
+        # ссылка, длина и обложка — чтобы песню из списка можно было сразу включить в мини-аппе
         top_tracks = await rows(
-            "SELECT title, artist, COUNT(*) c FROM plays WHERE user_id=? "
-            "GROUP BY title, artist ORDER BY c DESC LIMIT 8",
+            "SELECT title, artist, COUNT(*) c, MAX(duration), MAX(COALESCE(url, '')), MAX(COALESCE(cover, '')) "
+            "FROM plays WHERE user_id=? GROUP BY title, artist ORDER BY c DESC LIMIT 8",
             user_id,
         )
         recent = await rows(
-            "SELECT title, artist, duration, ts FROM plays WHERE user_id=? ORDER BY id DESC LIMIT 12", user_id
+            "SELECT title, artist, duration, ts, COALESCE(url, ''), COALESCE(cover, '') FROM plays WHERE user_id=? "
+            "ORDER BY id DESC LIMIT 12",
+            user_id,
         )
         sources = await rows(
             "SELECT source, COUNT(*) FROM plays WHERE user_id=? GROUP BY source ORDER BY 2 DESC", user_id
@@ -352,8 +355,14 @@ async def dashboard(user_id: int) -> dict:
         "days": {d: c for d, c in days},
         "hours": {h: c for h, c in hours},
         "top_artists": [{"artist": a, "plays": c, "seconds": s} for a, c, s in top_artists],
-        "top_tracks": [{"title": t, "artist": a, "plays": c} for t, a, c in top_tracks],
-        "recent": [{"title": t, "artist": a, "duration": d, "ts": ts} for t, a, d, ts in recent],
+        "top_tracks": [
+            {"title": t, "artist": a, "plays": c, "duration": d or 0, "url": u, "cover": cv}
+            for t, a, c, d, u, cv in top_tracks
+        ],
+        "recent": [
+            {"title": t, "artist": a, "duration": d or 0, "ts": ts, "url": u, "cover": cv}
+            for t, a, d, ts, u, cv in recent
+        ],
         "sources": [{"source": s, "plays": c} for s, c in sources],
     }
 

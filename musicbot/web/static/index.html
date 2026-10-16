@@ -201,6 +201,25 @@
   .nowmsg { min-height: 20px; margin-top: var(--s2); color: var(--text2); font-size: var(--t-meta); text-align: center; }
   .nowbar .textbtn { margin-top: var(--s2); padding-block: var(--s3); }
   body.withbar { padding-bottom: calc(300px + env(safe-area-inset-bottom)); }
+  body.withbar.barmin { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  /* верх плеера: «свернуть» и «закрыть» рядом */
+  .nowtop { grid-template-columns: 52px 1fr auto; }
+  .nowtools { display: flex; }
+  .nowtools .ico { width: 44px; height: 44px; }
+  /* свёрнутый плеер: тонкая полоса с прогрессом, кнопкой и названием; нажатие на название раскрывает его */
+  .nowmini { display: none; }
+  .nowbar.min { padding: 0 var(--s3) env(safe-area-inset-bottom); clip-path: none; }
+  .nowbar.min > :not(.nowmini) { display: none; }
+  .nowbar.min .nowmini { position: relative; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; height: 48px; }
+  .minline { position: absolute; left: 0; top: -2px; height: 2px; width: 0; background: var(--rose); }
+  .ico.small { width: 44px; height: 44px; }
+  .ico.small svg { width: 22px; height: 22px; }
+  .nowmini .mt { min-width: 0; overflow: hidden; padding: 0 var(--s2); border: 0; background: none; color: var(--text);
+    font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  /* строки дашборда, которые можно нажать */
+  .list li.pick { cursor: pointer; }
+  .list li.pick:hover .nm, .list li.pick:focus-visible .nm { color: var(--rose); }
+  .list li.pick:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -334,27 +353,67 @@ function clock(hours) {
   return wrap;
 }
 
-function ranked(items, main, sub, count) {
+// a row the user can tap (or press Enter/Space on) to play or open something
+function pickable(li, label, onPick) {
+  if (!onPick) return;
+  li.classList.add("pick"); li.tabIndex = 0; li.setAttribute("role", "button"); li.setAttribute("aria-label", label);
+  li.onclick = onPick;
+  li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); } };
+}
+
+function ranked(items, main, sub, count, onPick, label) {
   const ul = $("ul", "list");
   items.forEach((it, i) => {
     const li = $("li"), box = $("div", "nm");
     box.append(document.createTextNode(main(it)));
     if (sub && sub(it)) box.append($("span", "sb", sub(it)));
     li.append($("span", "rank", i + 1), box, $("span", "ct", count(it)));
+    pickable(li, label ? label(it) : main(it), onPick && (() => onPick(i)));
     ul.append(li);
   });
   return ul;
 }
 
-function recent(items) {
+function recent(items, onPick) {
   const ul = $("ul", "list plain");
-  items.forEach(it => {
+  items.forEach((it, i) => {
     const li = $("li"), box = $("div", "nm"), dt = new Date(it.ts * 1000);
     box.append(document.createTextNode(it.title), $("span", "sb", it.artist || "Unknown artist"));
     li.append(box, $("span", "ct", `${dateShort(dt)}, ${pad(dt.getHours())}:${pad(dt.getMinutes())}`));
+    pickable(li, `Play ${it.title}, ${it.artist || ""}`, onPick && (() => onPick(i)));
     ul.append(li);
   });
   return ul;
+}
+
+// songs from the dashboard lists play through the same bottom player as favorites
+const asTracks = list => list.map(x => ({ title: x.title, artist: x.artist || "", duration: x.duration || 0,
+  url: x.url || "", cover: x.cover || "", kind: "track" }));
+
+// an artist from Top artists: show their songs and let the user pick one
+async function openArtist(name) {
+  sheet.replaceChildren();
+  showSheet();
+  const head = $("div", "head"), info = $("div");
+  info.append($("div", "t", name), $("div", "a", "Songs"));
+  head.append(gem(""), info);
+  const status = $("div", "status", "Finding songs…"), list = $("div", "favlist");
+  status.setAttribute("role", "status");
+  sheet.append(head, status, list);
+  try {
+    const r = await api(`/api/artist?name=${encodeURIComponent(name)}`);
+    if (!r.items.length) { status.textContent = "No songs found for this artist."; return; }
+    status.textContent = "";
+    const songs = asTracks(r.items);
+    songs.forEach((s, i) => {
+      const b = $("button", "favrow"), box = $("div", "nm");
+      box.append(document.createTextNode(s.title), $("span", "sb", s.artist));
+      b.append(box, $("span", "ct", mmss(s.duration)));
+      b.setAttribute("aria-label", `Play ${s.title}, ${s.artist}`);
+      b.onclick = () => startQueue(songs, mix.on, i);
+      list.append(b);
+    });
+  } catch (e) { status.className = "status bad"; status.textContent = "Could not load songs. Try again."; }
 }
 
 function gem(url) {
@@ -406,7 +465,7 @@ function markNow() {
 
 // favorites player: plays the whole list one track after another inside the page
 const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
-const player = { items: [], i: -1, token: 0, cache: {}, bar: null, au: null, els: {} };
+const player = { items: [], base: [], i: -1, token: 0, cache: {}, bar: null, au: null, els: {} };
 
 function quickBox() { const box = $("div", "quick"); box.id = "quick"; fillQuick(box); return box; }
 function fillQuick(box) {
@@ -430,8 +489,12 @@ const SHUFFLE = ["M4 7h3.5L16.5 17H20", "M4 17h3.5l2.6-2.9", "M13.9 9.9L16.5 7H2
 function icon(name) {
   const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
   if (name === "repeat" || name === "shuffle") { for (const d of name === "repeat" ? REPEAT : SHUFFLE) s.append(svg("path", { d })); return s; }
-  const p = svg("path", { d: name === "close" ? "M6 6l12 12M18 6L6 18" : ICONS[name] });
-  if (name === "close") { p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "2"); }
+  const LINES = { close: "M6 6l12 12M18 6L6 18", down: "M6 9l6 6 6-6", up: "M6 15l6-6 6 6" };  // drawn as strokes
+  const p = svg("path", { d: LINES[name] || ICONS[name] });
+  if (LINES[name]) {
+    p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "2");
+    p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
+  }
   s.append(p); return s;
 }
 // on/off switches shared by every copy of the button (list, bottom player, track sheet) and remembered on this device
@@ -465,13 +528,14 @@ function shuffled(list) {
 }
 function remix() {
   const cur = player.bar && !player.bar.hidden ? player.items[player.i] : null;
-  if (!cur || !state.favs.length) return;
+  if (!cur || !player.base.length) return;
+  // the queue came from a list (favorites, Top tracks, an artist's songs): reorder that list, keep the song playing
   if (mix.on) {
-    player.items = [cur, ...shuffled(state.favs.filter(f => f.key !== cur.key))];
+    player.items = [cur, ...shuffled(player.base.filter(x => x !== cur))];
     player.i = 0;
   } else {
-    const at = state.favs.findIndex(f => f.key === cur.key);
-    player.items = state.favs.slice();
+    const at = player.base.indexOf(cur);
+    player.items = player.base.slice();
     player.i = Math.max(0, at);
   }
   player.cache = {};  // the cache is by position in the queue, and the positions changed; the song playing is not touched
@@ -492,10 +556,18 @@ function discSvg() {  // a small vinyl record; it spins while the music plays
 const tm = s => Number.isFinite(s) ? `${Math.floor(s / 60)}:${pad(Math.floor(s % 60))}` : "0:00";
 
 function ensurePlayerBar() {
-  if (player.bar) { player.bar.hidden = false; document.body.classList.add("withbar"); return; }
+  if (player.bar) {
+    player.bar.hidden = false; document.body.classList.add("withbar");
+    document.body.classList.toggle("barmin", player.bar.classList.contains("min"));
+    return;
+  }
   const au = new Audio(); au.preload = "auto";
   const bar = $("div", "nowbar"), top = $("div", "nowtop"), disc = $("div", "disc"), info = $("div", "nowinfo");
   const title = $("div", "nowt"), sub = $("div", "nows"), close = iconButton("close", "Close player", "quiet");
+  const shrink = iconButton("down", "Minimize player", "quiet"), tools = $("div", "nowtools");
+  // minimized: a thin strip with the song, play/pause and a way back to the full player
+  const mini = $("div", "nowmini"), mline = $("div", "minline"), mplay = iconButton("play", "Play", "small");
+  const mt = $("button", "mt"), grow = iconButton("up", "Expand player", "quiet small");
   const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
   const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
   const ctrl = $("div", "ctrl"), prev = iconButton("prev", "Previous track"), main = iconButton("play", "Play", "main"), next = iconButton("next", "Next track");
@@ -503,15 +575,26 @@ function ensurePlayerBar() {
   const msg = $("div", "nowmsg"), hand = $("button", "textbtn", "Continue in chat");
   range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
   msg.setAttribute("role", "status");
-  disc.append(discSvg()); info.append(title, sub); top.append(disc, info, close);
+  disc.append(discSvg()); info.append(title, sub); tools.append(shrink, close); top.append(disc, info, tools);
   seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(mixb, prev, main, next, loop);
-  bar.append(top, seek, times, ctrl, msg, hand);
+  mt.setAttribute("aria-label", "Expand player"); mini.append(mline, mplay, mt, grow);
+  bar.append(top, seek, times, ctrl, msg, hand, mini);
   document.body.append(bar); document.body.classList.add("withbar");
-  Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand } });
+  Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand, mt } });
+  const minimize = on => {
+    bar.classList.toggle("min", on); document.body.classList.toggle("barmin", on);
+    try { localStorage.setItem("playerMin", on ? "1" : "0"); } catch (e) {}
+  };
+  let startMin = false;
+  try { startMin = localStorage.getItem("playerMin") === "1"; } catch (e) {}
+  minimize(startMin);
+  shrink.onclick = () => minimize(true);
+  mt.onclick = grow.onclick = () => minimize(false);
+  mplay.onclick = () => main.onclick();
 
   const shown = () => {
     const p = au.duration ? au.currentTime / au.duration : 0;
-    fill.style.width = dot.style.left = `${p * 100}%`;
+    fill.style.width = dot.style.left = mline.style.width = `${p * 100}%`;
     range.value = Math.round(p * 1000); cur.textContent = tm(au.currentTime); dur.textContent = au.duration ? tm(au.duration) : "";
     if ("mediaSession" in navigator && navigator.mediaSession.setPositionState && au.duration) {
       try { navigator.mediaSession.setPositionState({ duration: au.duration, position: au.currentTime, playbackRate: 1 }); } catch (e) {}
@@ -519,6 +602,7 @@ function ensurePlayerBar() {
   };
   const state_ = on => {
     bar.classList.toggle("playing", on); main.replaceChildren(icon(on ? "pause" : "play")); main.setAttribute("aria-label", on ? "Pause" : "Play");
+    mplay.replaceChildren(icon(on ? "pause" : "play")); mplay.setAttribute("aria-label", on ? "Pause" : "Play");
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = on ? "playing" : "paused";
   };
   au.addEventListener("timeupdate", shown); au.addEventListener("durationchange", shown);
@@ -547,18 +631,22 @@ function setNow(it, text) {
   e.title.textContent = it ? it.title : "";
   e.sub.textContent = it ? `${it.artist || ""}${player.items.length > 1 ? `, ${player.i + 1} of ${player.items.length}` : ""}` : "";
   e.msg.textContent = text || "";
+  e.mt.textContent = it ? `${it.artist ? it.artist + " - " : ""}${it.title}` : "";
   if (it && "mediaSession" in navigator && window.MediaMetadata) {
-    navigator.mediaSession.metadata = new MediaMetadata({ title: it.title, artist: it.artist || "", album: "My Favorites",
+    navigator.mediaSession.metadata = new MediaMetadata({ title: it.title, artist: it.artist || "",
+      album: it.kind === "fav" ? "My Favorites" : "MusicBot",
       artwork: it.cover && it.cover.startsWith("https://") ? [{ src: it.cover, sizes: "512x512" }] : [] });
   }
 }
 
-// favorites are kept on the server after the first download, so this answers at once on every later play
+// favorites are kept on the server after the first download, so this answers at once on every later play;
+// other songs (Top tracks, Recent, an artist's songs) come by their saved YouTube link or are found by name
 function trackUrl(i) {
   const it = player.items[i];
   if (!it) return Promise.reject(new Error("end"));
-  if (!player.cache[i]) player.cache[i] = post("/api/favplay", { artist: it.artist, title: it.title,
-    duration: it.duration || 0, cover: it.cover || "" }).then(r => r.url);
+  const body = { artist: it.artist, title: it.title, duration: it.duration || 0, cover: it.cover || "" };
+  if (!player.cache[i]) player.cache[i] = (it.kind === "fav" ? post("/api/favplay", body)
+    : post("/api/track", { ...body, url: it.url || "" })).then(r => r.url);
   return player.cache[i];
 }
 
@@ -598,14 +686,19 @@ function maybeAutoplay() {
 
 // start = null: the whole list (shuffled with mix); start = N: song N first, then the rest in order or mixed
 function startFavorites(shuffle, start = null) {
-  if (!state.favs.length) return;
-  const at = Math.min(Math.max(0, start ?? 0), state.favs.length - 1);
-  let items = state.favs.slice(), first = at;
+  startQueue(state.favs.map(f => ({ ...f, kind: "fav" })), shuffle, start);
+}
+
+function startQueue(list, shuffle, start = null) {
+  if (!list.length) return;
+  const at = Math.min(Math.max(0, start ?? 0), list.length - 1);
+  let items = list.slice(), first = at;
   if (shuffle && start === null) { items = shuffled(items); first = 0; }
-  else if (shuffle) { items = [state.favs[at], ...shuffled(state.favs.filter((_, k) => k !== at))]; first = 0; }
-  Object.assign(player, { items, cache: {} });
+  else if (shuffle) { items = [list[at], ...shuffled(list.filter((_, k) => k !== at))]; first = 0; }
+  Object.assign(player, { items, base: list.slice(), cache: {} });
   if (sheetOpen) closeSheet();  // a track sheet must not keep its own player going over the queue
   ensurePlayerBar();
+  player.els.hand.hidden = list[0].kind !== "fav";  // the bot can send favorites to the chat, not other lists
   player.au.src = SILENT; player.au.play().catch(() => {});  // the tap unlocks audio, so the next tracks can start by themselves
   // closing the page ends playback, so ask before it closes while music is on
   if (tg && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
@@ -629,7 +722,7 @@ function stopPlayer() {
   player.token++;
   if (player.au) { player.au.pause(); player.au.removeAttribute("src"); player.au.load(); }
   if (player.bar) player.bar.hidden = true;
-  document.body.classList.remove("withbar");
+  document.body.classList.remove("withbar", "barmin");
   markNow();
   if (tg && tg.disableClosingConfirmation) tg.disableClosingConfirmation();
 }
@@ -941,10 +1034,12 @@ function render() {
       section("Activity", null, daysGrid(d.days)),
       section("Listening hours", null, clock(d.hours)));
     if (d.top_artists.length) page.append(section("Top artists", null,
-      ranked(d.top_artists, x => x.artist, x => hoursText(x.seconds), x => tracks(x.plays))));
+      ranked(d.top_artists, x => x.artist, x => hoursText(x.seconds), x => tracks(x.plays),
+        i => openArtist(d.top_artists[i].artist), x => `Songs by ${x.artist}`)));
     if (d.top_tracks.length) page.append(section("Top tracks", null,
-      ranked(d.top_tracks, x => x.title, x => x.artist, x => `${x.plays} ${plural(x.plays, "play", "plays")}`)));
-    page.append(section("Recent", null, recent(d.recent)));
+      ranked(d.top_tracks, x => x.title, x => x.artist, x => `${x.plays} ${plural(x.plays, "play", "plays")}`,
+        i => startQueue(asTracks(d.top_tracks), mix.on, i), x => `Play ${x.title}, ${x.artist}`)));
+    page.append(section("Recent", null, recent(d.recent, i => startQueue(asTracks(d.recent), mix.on, i))));
   }
   root.replaceChildren(page);
   if (state.recs.length) root.append(section(d.total ? "Recommended" : "Popular now", null, gifts(state.recs)));
