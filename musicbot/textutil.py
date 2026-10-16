@@ -2,6 +2,7 @@
 
 import re
 import unicodedata
+from difflib import SequenceMatcher
 
 
 def fold(s: str) -> str:
@@ -17,6 +18,32 @@ def norm(s: str) -> str:
     """Название для сравнения: без скобок, регистра, диакритики, знаков и пробелов."""
     s = re.sub(r"\(.*?\)|\[.*?\]", " ", fold(s.lower()))
     return re.sub(r"[\W_]+", "", s)
+
+
+_TRANSLIT = str.maketrans(
+    {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh", "з": "z", "и": "i",
+        "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
+        "у": "u", "ф": "f", "х": "h", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "",
+        "э": "e", "ю": "yu", "я": "ya", "і": "i", "ї": "i", "є": "e", "ґ": "g",
+    }
+)  # fmt: skip
+
+
+def latin(s: str) -> str:
+    """Кириллица латиницей для сравнения имён: «Кино» -> «kino», «Земфира» -> «zemfira»."""
+    return norm(s).translate(_TRANSLIT)
+
+
+def same_artist(a: str, b: str) -> bool:
+    """Один и тот же исполнитель, даже если в каталоге он латиницей, а на YouTube кириллицей
+    («Zemfira» и «Земфира», «Splean» и «Сплин»). Без транслита такие песни не находились."""
+    x, y = latin(a), latin(b)
+    if not x or not y:
+        return False
+    if x in y or y in x:
+        return True
+    return min(len(x), len(y)) >= 5 and SequenceMatcher(None, x, y).ratio() >= 0.7  # короткие имена — только точно
 
 
 # хвосты каталогов, которые запись не меняют: «Draw You Out - From The Hunger Games: …», «Song - Remastered 2011»,

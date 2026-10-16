@@ -369,3 +369,39 @@ async def test_songs_that_failed_are_named_in_playlist_order(no_db):
         bot, 1, 1, [{"title": t} for t in "ABCD"], prepare, progress=False, failures=missed
     )
     assert failed == 2 and [m["title"] for m in missed] == ["B", "D"]
+
+
+@pytest.mark.parametrize(
+    ("catalog", "youtube", "same"),
+    [
+        ("Zemfira", "Земфира", True),
+        ("Kino", "Кино", True),
+        ("Splean", "Сплин", True),  # своё латинское написание группы, близкое к транслиту
+        ("Mumiy Troll", "Мумий Тролль", True),
+        ("DDT", "ДДТ", True),
+        ("Kino", "Хэт", False),
+        ("Splean", "GANCAYCO", False),
+        ("Lana", "Lena", False),  # короткие имена — только точное совпадение
+    ],
+)
+def test_artist_names_in_another_alphabet_are_the_same_artist(catalog, youtube, same):
+    from musicbot.textutil import same_artist
+
+    assert same_artist(catalog, youtube) is same
+
+
+async def test_latin_artist_from_spotify_finds_the_cyrillic_youtube_upload(monkeypatch, result):
+    from musicbot.search import fetch
+    from musicbot.search.models import Outcome
+
+    async def fake_search(query, limit=8, deep=False, fast_only=False):
+        return Outcome(
+            [
+                result("Группа крови", "Хэт", 290, url="https://www.youtube.com/watch?v=cover"),  # чужая песня
+                result("Группа крови", "Кино", 285, url="https://www.youtube.com/watch?v=kino"),
+            ]
+        )
+
+    monkeypatch.setattr(fetch, "search", fake_search)
+    found = await fetch.resolve(result("Группа крови", "Kino", 284))
+    assert [r.url for r in found] == ["https://www.youtube.com/watch?v=kino"]

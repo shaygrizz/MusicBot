@@ -14,7 +14,7 @@ from ..download import (
     probe_duration,
 )
 from ..paths import DOWNLOAD_DIR
-from ..textutil import BAD_VERSION_RE, core_title, norm
+from ..textutil import BAD_VERSION_RE, core_title, norm, same_artist
 from .engine import search
 from .models import is_lazy
 
@@ -37,9 +37,11 @@ async def resolve(meta: SearchResult, exclude: set[str] | None = None, limit: in
     def exact(r: SearchResult) -> bool:
         if want and want not in norm(r.title):
             return False
-        # то же название у другого исполнителя («The Way I Still Love You» вместо «still love you») — чужая песня
+        # то же название у другого исполнителя («The Way I Still Love You» вместо «still love you») — чужая песня.
+        # Имя может быть в другой азбуке: в Spotify «Kino», на YouTube «Кино» — это тот же исполнитель
         if artist_tokens and not any(t in norm(f"{r.artist} {r.title}") for t in artist_tokens):
-            return False
+            if not any(same_artist(a, r.artist) for a in re.split(r"\s*[,&]\s*", meta.artist) if a.strip()):
+                return False
         if meta.duration and r.duration and abs(r.duration - meta.duration) > 8:
             return False
         return asked_bad or not BAD_VERSION_RE.search(r.title)
