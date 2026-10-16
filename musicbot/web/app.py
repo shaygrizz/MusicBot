@@ -255,6 +255,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             "bg": f"/avatar/{profile['bg_token']}" if profile["bg_token"] else None,
         }
         data["favorites"] = await db.fav_list(user["id"])
+        favcache.spawn(favcache.backfill(user["id"], data["favorites"]))  # то, чего нет на диске, догружается в фоне
         data["bot"] = bot_username
         return web.json_response(data)
 
@@ -374,7 +375,21 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             duration = int(body.get("duration") or 0)
             await db.fav_add(user["id"], artist, title, duration, cover)
             # звук сохраняем на диск заранее: песня будет играть мгновенно и больше не скачивается заново
-            asyncio.create_task(favcache.prefetch(user["id"], artist, title, duration, cover))
+            ready = next(
+                (
+                    d
+                    for u, _, v, d in files.values()
+                    if u == user["id"] and v == str(body.get("vid", "")) and d.path.exists()
+                ),
+                None,
+            )  # песню уже скачали в шторке: берём этот файл, а не качаем второй раз
+            if ready is not None and _norm_full(ready.title) == _norm_full(title):
+                try:
+                    await favcache.adopt(user["id"], artist, title, ready.path)
+                except Exception:
+                    logging.exception("webapp: файл не перенесён в избранное")
+            if not favcache.has(user["id"], artist, title):
+                favcache.spawn(favcache.prefetch(user["id"], artist, title, duration, cover))
         elif op == "remove":
             await db.fav_remove(user["id"], artist, title)
         else:

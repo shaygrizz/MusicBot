@@ -527,7 +527,7 @@ async def on_favorite(cb: CallbackQuery):
     else:
         await db.fav_add(uid, play["artist"], play["title"], play["duration"], play["cover"])
         # заранее сохраняем звук на диск: дальше песня будет играть мгновенно и больше не скачивается заново
-        asyncio.create_task(favcache.prefetch(uid, play["artist"], play["title"], play["duration"], play["cover"]))
+        favcache.spawn(favcache.prefetch(uid, play["artist"], play["title"], play["duration"], play["cover"]))
         now_fav, note = True, texts.say("fav_added")
     await cb.answer(note)
     try:

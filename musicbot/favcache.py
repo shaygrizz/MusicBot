@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import hmac
+import logging
 import os
 import re
 import shutil
@@ -13,7 +14,10 @@ from . import db, download, paths, search
 CACHE_DIR = paths.FAVORITES
 MAX_FILES = 400  # старые файлы удаляются, чтобы папка не росла бесконечно
 TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
+PREFETCH_TRIES = 3
 _inflight: dict[str, asyncio.Task] = {}
+_background: set[asyncio.Task] = set()
+_backfilling: set[int] = set()
 
 
 def token_for(user_id: int, artist: str, title: str) -> str:
@@ -70,9 +74,50 @@ async def ensure(user_id: int, artist: str, title: str, duration: int = 0, cover
     return token, await asyncio.shield(task)  # отмена запроса не должна обрывать загрузку
 
 
+def has(user_id: int, artist: str, title: str) -> bool:
+    return find(token_for(user_id, artist, title)) is not None
+
+
+def spawn(coro) -> None:
+    """Фоновая задача со ссылкой на неё: иначе event loop может собрать её сборщиком мусора на середине."""
+    task = asyncio.create_task(coro)
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+
+
+async def adopt(user_id: int, artist: str, title: str, src: Path) -> bool:
+    """Кладёт уже скачанный файл в постоянный кэш, чтобы не качать ту же песню второй раз."""
+    token = token_for(user_id, artist, title)
+    if find(token) or not src.exists() or src.suffix.lower() not in (".m4a", ".mp3"):
+        return find(token) is not None
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    dest = CACHE_DIR / f"{token}{src.suffix.lower()}"
+    await asyncio.to_thread(shutil.copyfile, src, dest)
+    _prune()
+    return True
+
+
 async def prefetch(user_id: int, artist: str, title: str, duration: int = 0, cover: str = "") -> None:
-    """Фоновая загрузка при добавлении в избранное: к первому прослушиванию файл уже на диске."""
+    """Фоновая загрузка при добавлении в избранное: к первому прослушиванию файл уже на диске.
+    При сбое пробует ещё раз: иначе песня скачивалась бы только при нажатии, и пользователь ждал бы."""
+    for attempt in range(PREFETCH_TRIES):
+        try:
+            await ensure(user_id, artist, title, duration, cover)
+            return
+        except Exception as e:
+            logging.warning("избранное не предзагрузилось (%d/%d) %s - %s: %s", attempt + 1, PREFETCH_TRIES, artist, title, str(e)[:150])
+            await asyncio.sleep(5 * (attempt + 1))
+
+
+async def backfill(user_id: int, favs: list[dict]) -> None:
+    """Догружает избранное, которого нет на диске (добавлено раньше, сорвалась загрузка, файл вытеснен).
+    Идёт по одной песне, у одного пользователя не больше одного прохода сразу."""
+    if user_id in _backfilling:
+        return
+    _backfilling.add(user_id)
     try:
-        await ensure(user_id, artist, title, duration, cover)
-    except Exception:
-        pass
+        for f in favs[:MAX_FILES]:
+            if not has(user_id, f["artist"], f["title"]):
+                await prefetch(user_id, f["artist"], f["title"], f.get("duration") or 0, f.get("cover") or "")
+    finally:
+        _backfilling.discard(user_id)

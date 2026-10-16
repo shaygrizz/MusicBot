@@ -671,7 +671,7 @@ async function openTrack(rec) {
     fav.disabled = true;
     try {
       const r = await post("/api/favorites", { op: isFav(rec) ? "remove" : "add", artist: rec.artist, title: rec.title,
-        duration: rec.duration || 0, cover: rec.cover || "" });
+        duration: rec.duration || 0, cover: rec.cover || "", vid: current ? current.vid : "" });
       state.favs = r.favorites; fav.textContent = favLabel(); renderFavs();
     } catch (e) { setStatus("Could not update favorites.", "bad"); }
     fav.disabled = false;
