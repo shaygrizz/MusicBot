@@ -12,6 +12,8 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
+from difflib import SequenceMatcher, get_close_matches
 
 import yt_dlp
 
@@ -51,6 +53,7 @@ class Canon:
     title: str
     duration: int
     thumb: str = ""
+    rank: int = 0  # популярность в Deezer (больше — известнее); только для выбора среди кандидатов
 
 
 @dataclass
@@ -161,7 +164,8 @@ def _genius(q: str) -> list[Canon]:
 
 
 LYRIC_MIN_WORDS = 3  # от скольких слов запрос считаем «строчкой из песни»
-LYRIC_HITS = 1  # лучшее совпадение по тексту; следующие у Genius обычно случайные
+KNOWN_RANK = 100_000  # рейтинг Deezer, с которого песню считаем известной (у малоизвестных — ноль или единицы тысяч)
+LYRIC_CANDIDATES = 8  # сколько песен с подходящей строкой рассматриваем; берём самую известную
 
 
 def _clean_genius_title(title: str) -> str:
@@ -172,7 +176,7 @@ def _clean_genius_title(title: str) -> str:
     return title.strip()
 
 
-def _sings_it(hit: dict, q: str) -> bool:
+def _sings_it(hit: dict, q: str, fuzzy: bool = False) -> bool:
     """В тексте песни есть строка, почти совпадающая с запросом. Если запрос лишь часть длинной строки
     («Ik voel me tame impala the less I know the better»), песня его только упоминает, а не поёт."""
     want = _norm(q)
@@ -185,12 +189,15 @@ def _sings_it(hit: dict, q: str) -> bool:
                 continue
             if want in ln and len(want) >= 0.8 * len(ln):
                 return True
+            # опечатки в запросе: строка похожа на запрос по буквам и близка к нему по длине
+            if fuzzy and 0.8 <= len(want) / len(ln) <= 1.25 and SequenceMatcher(None, want, ln).ratio() >= 0.85:
+                return True
             if ln in want and len(ln) >= 12:  # запрос захватывает несколько строк
                 return True
     return False
 
 
-def _lyric_catalog(q: str) -> list[Canon]:
+def _lyric_catalog(q: str, fuzzy: bool = False) -> list[Canon]:
     """Поиск песни по словам из текста (Genius ищет по тексту, а не только по названию).
     «is this the real life is this just fantasy» -> Queen — Bohemian Rhapsody.
     Берём разные песни (каверы и ремастеры с тем же названием отбрасываем), длительность и обложку уточняем в Deezer."""
@@ -203,32 +210,59 @@ def _lyric_catalog(q: str) -> list[Canon]:
             title = _clean_genius_title(r.get("title", ""))
             if not artist or not title or "Genius" in artist:  # страницы переводов
                 continue
-            if not _sings_it(h, q):
+            if not _sings_it(h, q, fuzzy):
                 continue
             if BAD_VERSION_RE.search(title) and not BAD_VERSION_RE.search(q):
                 continue
-            if any(_norm(title) == _norm(c.title) for c in out):
-                continue  # то же название у другого исполнителя — это кавер, берём первого (самого популярного)
+            if any(_norm(title) == _norm(c.title) and _norm(artist) == _norm(c.artist) for c in out):
+                continue  # ремастеры и повторы одной песни
             out.append(Canon(artist, title, 0, r.get("song_art_image_thumbnail_url", "")))
-            if len(out) >= LYRIC_HITS:
+            if len(out) >= LYRIC_CANDIDATES:
                 return out
     return out
 
 
 def _enrich(c: Canon) -> Canon:
-    """Длительность и обложка из Deezer: по ним проверяется, что скачалась именно эта песня."""
+    """Длительность, обложка и известность из Deezer: по длительности проверяется, что скачалась именно эта песня."""
     try:
         want_t, want_a = _norm(c.title), _norm(c.artist)
-        for d in _deezer(f"{c.artist} {c.title}", 5):
-            if _norm(d.title) == want_t and (want_a in _norm(d.artist) or _norm(d.artist) in want_a):
-                return Canon(d.artist, d.title, d.duration, d.thumb or c.thumb)
+        data = _get_json(f"https://api.deezer.com/search?limit=5&q=" + urllib.parse.quote(f"{c.artist} {c.title}"))
+        for x in data.get("data", []):
+            name = x["artist"]["name"]
+            if _norm(x["title"]) == want_t and (want_a in _norm(name) or _norm(name) in want_a):
+                return Canon(name, x["title"], int(x.get("duration") or 0),
+                             (x.get("album") or {}).get("cover_big", "") or c.thumb, int(x.get("rank") or 0))
     except Exception:
         pass
     return c
 
 
-def _lyric_candidates(q: str) -> list[Canon]:
-    return [_enrich(c) for c in _lyric_catalog(q)]
+def _respell(q: str, titles: list[str]) -> str:
+    """Исправляет опечатки по словам из найденных названий («fireworc» -> «firework»): в них обычно верное написание."""
+    vocab = {w for t in titles for w in re.findall(r"[\w']+", t.lower()) if len(w) >= 3}
+    fixed = []
+    for w in q.split():
+        lw = w.lower().strip("'\"")
+        if len(lw) < 3 or lw in vocab:
+            fixed.append(w)
+            continue
+        close = get_close_matches(lw, vocab, n=1, cutoff=0.75)
+        fixed.append(close[0] if close else w)
+    return " ".join(fixed)
+
+
+def _lyric_candidates(q: str, fuzzy: bool = False) -> list[Canon]:
+    """Песня по строчке из текста. Среди подходящих по тексту берём самую известную: при опечатках в запросе
+    Genius отдаёт много песен с похожей строкой, и первая из них не обязательно нужная (берём первую известную)."""
+    found = _lyric_catalog(q, fuzzy)
+    if not found:
+        return []
+    with ThreadPoolExecutor(len(found)) as ex:
+        rich = list(ex.map(_enrich, found))
+    known = [c for c in rich if c.rank >= KNOWN_RANK]  # порядок Genius сохраняем: он лучше отражает совпадение текста
+    if fuzzy:  # запрос с исправленными опечатками — это догадка, поэтому берём только известные песни
+        return known[:1]
+    return [(known or rich)[0]]
 
 
 # ---------- источники со скачиваемыми результатами ----------
@@ -582,17 +616,26 @@ async def _search_impl(query: str, limit: int, deep: bool, fast_only: bool = Fal
             results = _merge(pool, canons, q, limit, strict=False)
     # «исполнитель + название» в запросе — это не строчка из песни, поиск по тексту только внесёт шум
     named = any(_norm(c.artist) in _norm(q) and _norm(c.title) in _norm(q) for c in canons_dz)
-    if lyric and not named:  # запрос мог быть строчкой из песни, а не названием: Genius ищет по словам из текста
+    short_title = bool(canons_dz) and len(words) < 5  # короткий запрос, по названию нашлось: это название, а не текст
+    if lyric and not named and not short_title:  # запрос мог быть строчкой из песни, а не названием: Genius ищет по словам из текста
         await asyncio.wait([lyric], timeout=max(1.5, FAST_DEADLINE - (loop.time() - start)))
         by_text = _done(lyric)
+        if not by_text:  # ничего не нашлось — возможно, в запросе опечатки: правим их по найденным названиям
+            fixed = _respell(q, [f"{r.artist} {r.title}" for r in pool] + [f"{c.artist} {c.title}" for c in canons])
+            if fixed.lower() != q.lower():
+                try:
+                    by_text = await asyncio.wait_for(asyncio.to_thread(_lyric_candidates, fixed, True), 4.0)
+                    logging.info("поиск по тексту: опечатки %r -> %r", q, fixed)
+                except Exception as e:
+                    logging.info("поиск по тексту с исправлением не удался: %s", str(e)[:80])
         if by_text:
             top = [SearchResult(id=f"ly{i}", title=c.title, artist=c.artist, duration=c.duration,
                                 url=_lazy_url(c), thumb_url=c.thumb, source="top", verified=True)
                    for i, c in enumerate(by_text)]
             rest = [r for r in results if not any(_norm(r.title) == _norm(c.title) and _artist_ok(r, c)
                                                   for c in by_text)]
-            # по названию ничего не нашлось -> песня по тексту первая; нашлось (часто чужие загрузки) -> второй
-            at = 0 if not canons_dz else min(1, len(rest))
+            # по названию ничего не нашлось и песня известная -> первая; иначе (чужие загрузки, малоизвестная) -> второй
+            at = 0 if not canons_dz and by_text[0].rank >= KNOWN_RANK else min(1, len(rest))  # неизвестную — второй
             results = (rest[:at] + top + rest[at:])[: 14 if deep else limit]
             logging.info("поиск по тексту %r: %s", q, "; ".join(f"{c.artist} - {c.title}" for c in by_text))
     if lyric and not lyric.done():
