@@ -140,3 +140,25 @@ def test_every_youtube_request_gets_cookies_js_runtime_and_ipv4(monkeypatch, tmp
     monkeypatch.delenv("YTDLP_JS_RUNTIME")
     monkeypatch.setattr(youtube, "FORCE_IPV4", False)
     assert youtube.youtube_opts({"quiet": True}) == {"quiet": True}
+
+
+def test_cookies_file_in_the_wrong_format_is_skipped_not_fatal(monkeypatch, tmp_path):
+    """JSON из расширения браузера yt-dlp не принимает и роняет каждое скачивание; такой файл пропускаем."""
+    from musicbot.download import youtube
+
+    bad = tmp_path / "cookies.txt"
+    bad.write_text('[{"domain": ".youtube.com", "name": "SID", "value": "x"}]')
+    monkeypatch.setattr(youtube, "COOKIES_FILE", bad)
+    monkeypatch.setattr(youtube, "_cookies_checked", None)
+    assert "cookiefile" not in youtube.youtube_opts({})
+
+    row = "\t".join([".youtube.com", "TRUE", "/", "TRUE", "0", "SID", "x"])
+    good = tmp_path / "good.txt"
+    good.write_text("\ufeff# Netscape HTTP Cookie File\n" + row + "\n", encoding="utf-8")
+    monkeypatch.setattr(youtube, "COOKIES_FILE", good)
+    assert youtube.youtube_opts({})["cookiefile"] == str(good)
+
+    tabs_only = tmp_path / "tabs.txt"  # без заголовка, но строки в формате Netscape — yt-dlp такой примет
+    tabs_only.write_text(row + "\n", encoding="utf-8")
+    monkeypatch.setattr(youtube, "COOKIES_FILE", tabs_only)
+    assert youtube.youtube_opts({})["cookiefile"] == str(tabs_only)

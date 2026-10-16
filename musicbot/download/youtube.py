@@ -1,6 +1,7 @@
 """Скачивание с YouTube: прямая ссылка, параллельная загрузка кусками, запасные клиенты."""
 
 import asyncio
+import logging
 import os
 import subprocess
 import threading
@@ -43,12 +44,43 @@ COOKIES_FILE = paths.COOKIES  # необязательно: куки из бра
 FORCE_IPV4 = os.getenv("YT_FORCE_IPV4", "1") != "0"
 
 
+_cookies_checked: tuple[tuple[str, float], bool] | None = None  # ((файл, время изменения), годится ли он)
+
+
+def cookies_usable() -> bool:
+    """cookies.txt есть и он в формате Netscape. Файл в другом формате (например, JSON из расширения браузера)
+    yt-dlp не принимает и роняет каждое скачивание; такой файл пропускаем и один раз пишем об этом в лог."""
+    global _cookies_checked
+    try:
+        stamp = (str(COOKIES_FILE), COOKIES_FILE.stat().st_mtime)
+    except OSError:
+        return False
+    if _cookies_checked and _cookies_checked[0] == stamp:
+        return _cookies_checked[1]
+    try:
+        head = COOKIES_FILE.read_text(encoding="utf-8", errors="replace")[:20000].lstrip("\ufeff")
+    except OSError:
+        head = ""
+    lines = [ln for ln in head.splitlines() if ln.strip()]
+    ok = bool(lines) and (
+        lines[0].startswith(("# Netscape HTTP Cookie File", "# HTTP Cookie File"))
+        or any(len(ln.split("\t")) == 7 for ln in lines if not ln.startswith("#"))
+    )
+    if not ok:
+        logging.warning(
+            "%s не в формате Netscape (нужна первая строка «# Netscape HTTP Cookie File»): работаем без куки",
+            COOKIES_FILE,
+        )
+    _cookies_checked = (stamp, ok)
+    return ok
+
+
 def youtube_opts(opts: dict) -> dict:
     """Общее для всех обращений к YouTube: куки (если положены в DATA_DIR), JS-движок для разбора страницы
     и IPv4. Без этого YouTube чаще отвечает «Sign in to confirm you're not a bot»: подсетям IPv6 дата-центров
     он доверяет меньше, а без JS-движка запросы выглядят не как у браузера."""
     out = dict(opts)
-    if COOKIES_FILE.exists():
+    if cookies_usable():
         out["cookiefile"] = str(COOKIES_FILE)
     if os.getenv("YTDLP_JS_RUNTIME"):  # в образе это Node.js
         out["js_runtimes"] = {os.environ["YTDLP_JS_RUNTIME"]: {}}
