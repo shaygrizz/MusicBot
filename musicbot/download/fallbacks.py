@@ -173,7 +173,7 @@ def _sc_query(url: str, meta: SearchResult | None) -> str | None:
 
 
 def audius_download(url: str, kind: str, workdir: Path):
-    import audius
+    from ..providers import audius
 
     if kind != "audio":
         raise RuntimeError("Audius — только аудио")
@@ -184,7 +184,7 @@ def audius_download(url: str, kind: str, workdir: Path):
 
 
 def hitmo_download(url: str, kind: str, workdir: Path):
-    import hitmo
+    from ..providers import hitmo
 
     if kind != "audio":
         raise RuntimeError("hitmo: только аудио")
@@ -195,7 +195,7 @@ def hitmo_download(url: str, kind: str, workdir: Path):
 
 def _hitmo_by_title(meta: SearchResult, workdir: Path):
     """Запасной путь: ищем трек на hitmotop по названию и исполнителю, берём совпадение по названию и длительности."""
-    import hitmo
+    from ..providers import hitmo
 
     asked_bad = bool(BAD_VERSION_RE.search(meta.title))
     want = _n(meta.title)

@@ -112,3 +112,21 @@ def test_famous_artist_missing_from_artist_search_is_found_by_her_top_song(monke
     name, songs = deezer_artist("aurora")
     assert name == "AURORA"
     assert [c.title for c in songs] == ["Runaway", "Cure For Me"]
+
+
+def test_famous_artist_is_found_even_if_her_song_is_not_the_first_track(monkeypatch):
+    # с другого адреса (сервер в Польше) первым трек может оказаться чужим — AURORA всё равно должна найтись
+    other = track("Aurora Borealis", "DJ Someone", rank=300_000)
+    other["artist"]["id"] = 5
+    runaway = track("Runaway", "AURORA", rank=945_380)
+    runaway["artist"]["id"] = 7
+    fake_deezer(
+        monkeypatch,
+        artists=[{"id": 1, "name": "Aurora", "nb_fan": 2_484}],
+        tracks=[other, runaway],
+        top=[track("Runaway", "AURORA"), track("The Seed", "AURORA")],
+        info={7: {"id": 7, "name": "AURORA", "nb_fan": 1_350_000}},
+    )
+    name, songs = deezer_artist("aurora")
+    assert name == "AURORA"
+    assert [c.title for c in songs] == ["Runaway", "The Seed"]

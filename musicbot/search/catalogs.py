@@ -1,5 +1,6 @@
 """Каталоги (Deezer, iTunes, Яндекс Музыка, Genius): только метаданные, без скачивания."""
 
+import logging
 import re
 import urllib.parse
 import urllib.request
@@ -49,6 +50,14 @@ SONG_OVER_ARTIST_FANS = 200_000  # у исполнителя с таким им�
 SONG_MIN_RANK = 500_000  # и рейтинг песни в Deezer не ниже этого
 
 
+def _artist_info(artist_id: int) -> dict | None:
+    try:
+        found = get_json(f"https://api.deezer.com/artist/{artist_id}")
+    except Exception:
+        return None
+    return found if found.get("id") and found.get("name") else None
+
+
 def deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
     """Если запрос — это имя исполнителя, возвращает его самые популярные песни (и только его).
     «queen» -> Queen: Under Pressure, Bohemian Rhapsody…; «queen under pressure» сюда не попадает."""
@@ -60,7 +69,7 @@ def deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
     # поиск исполнителя и самого популярного трека — одновременно, чтобы не ждать вдвое дольше
     with ThreadPoolExecutor(2) as ex:
         f_artist = ex.submit(get_json, "https://api.deezer.com/search/artist?limit=10&q=" + enc)
-        f_track = ex.submit(get_json, "https://api.deezer.com/search?limit=1&q=" + enc)
+        f_track = ex.submit(get_json, "https://api.deezer.com/search?limit=10&q=" + enc)
         data = f_artist.result()
         try:
             tracks = f_track.result().get("data", [])
@@ -68,15 +77,20 @@ def deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
             tracks = []
     exact = [a for a in data.get("data", []) if norm(a["name"]) == name_q]
     # поиск исполнителей Deezer иногда не показывает самого известного: по «aurora» — десять безвестных Aurora,
-    # а AURORA (Runaway) нет. Зато самый популярный трек по запросу — её; берём его исполнителя в кандидаты
-    lead = (tracks[0].get("artist") or {}) if tracks else {}
-    if lead.get("id") and norm(lead.get("name", "")) == name_q and all(a.get("id") != lead["id"] for a in exact):
-        try:
-            found = get_json(f"https://api.deezer.com/artist/{lead['id']}")
-            if found.get("id") and found.get("name"):
-                exact.append(found)
-        except Exception:
-            pass
+    # а AURORA (Runaway) нет. Зато её песни есть среди треков по запросу (какие именно — зависит от страны сервера),
+    # поэтому исполнителей с точно таким именем из первых треков тоже берём в кандидаты
+    known = {a.get("id") for a in exact}
+    leads = []
+    for t in tracks:
+        a = t.get("artist") or {}
+        if a.get("id") and a["id"] not in known and norm(a.get("name", "")) == name_q:
+            known.add(a["id"])
+            leads.append(a["id"])
+    if leads:
+        with ThreadPoolExecutor(min(3, len(leads))) as ex:
+            for found in ex.map(_artist_info, leads[:3]):
+                if found:
+                    exact.append(found)
     if not any((a.get("nb_fan") or 0) >= FUZZY_ARTIST_FANS for a in exact):
         # опечатка в имени («kendric lamar», «eminm»): Deezer её прощает, берём похожее имя, но только у заметных исполнителей —
         # иначе песня с похожим названием сошла бы за исполнителя. Пустые исполнители-двойники («Travis Scot») не мешают
@@ -112,6 +126,15 @@ def deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
         )
         if len(out) >= n:
             break
+    logging.info(
+        "исполнитель %r: %s (%s поклонников, кандидатов %d, из треков %d), песен %d",
+        q,
+        artist["name"],
+        artist.get("nb_fan"),
+        len(exact),
+        len(leads),
+        len(out),
+    )
     return (artist["name"], out) if out else None
 
 

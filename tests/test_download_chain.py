@@ -105,3 +105,16 @@ def test_too_big_file_stops_the_chain(monkeypatch):
     with pytest.raises(RuntimeError, match=chain.TOO_BIG):
         chain._download_sync(YT, "audio")
     assert calls == ["parallel"]
+
+
+def test_fallback_sources_reach_their_providers(monkeypatch, tmp_path):
+    """После переноса в пакет запасные источники импортировали модули по старым именам («No module named 'hitmo'»)."""
+    from musicbot.download import fallbacks
+    from musicbot.providers import audius, hitmo
+
+    monkeypatch.setattr(hitmo, "download", lambda url, dest: dest.write_bytes(b"mp3"))
+    monkeypatch.setattr(audius, "download", lambda track_id, dest: dest.write_bytes(b"mp3"))
+    path, info = fallbacks.hitmo_download("hitmo://https%3A%2F%2Fx%2Fa.mp3", "audio", tmp_path)
+    assert path.read_bytes() == b"mp3" and info["extractor_key"] == "hitmo"
+    path, info = fallbacks.audius_download("audius://abc", "audio", tmp_path)
+    assert path.read_bytes() == b"mp3" and info["extractor_key"] == "Audius"
