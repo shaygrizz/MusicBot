@@ -13,9 +13,15 @@ _ytm = None
 def get_ytm():
     global _ytm
     if _ytm is None:
+        import requests
+        from requests.adapters import HTTPAdapter
         from ytmusicapi import YTMusic
 
-        _ytm = YTMusic()
+        # поиск открывает к YouTube Music больше 10 соединений сразу; со стандартным пулом лишние выбрасываются
+        session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=4, pool_maxsize=32)
+        session.mount("https://", adapter)
+        _ytm = YTMusic(requests_session=session)
     return _ytm
 
 

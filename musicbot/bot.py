@@ -25,13 +25,23 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from . import db, download, favcache, favorites, playlist_bot, recognize, search, texts, tunnel
+from . import db, download, favcache, favorites, playlist_bot, recognize, restore, search, texts, tunnel
 from .access import ALLOWED, allowed
 from .web import app as webapp
 
 TOKEN = os.getenv("BOT_TOKEN", "")
 WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", "8080"))
-webapp_url = os.getenv("WEBAPP_URL", "").strip().rstrip("/")  # свой https-адрес, если есть; иначе туннель
+
+
+def https_url(raw: str) -> str:
+    """Telegram принимает для мини-аппа только https-ссылки: адрес без схемы («bot-1.bothost.tech») дополняем."""
+    url = raw.strip().rstrip("/")
+    if url and "://" not in url:
+        url = "https://" + url
+    return url
+
+
+webapp_url = https_url(os.getenv("WEBAPP_URL", ""))  # свой https-адрес, если есть; иначе туннель
 
 router = Router()
 # короткие токены для callback_data (лимит 64 байта) -> (url, метаданные из поиска)
@@ -178,6 +188,39 @@ async def admin(m: Message):
         inline_keyboard=[[InlineKeyboardButton(text="Open admin", web_app=WebAppInfo(url=f"{webapp_url}/admin"))]]
     )
     await m.answer("Admin panel.", reply_markup=kb)
+
+
+@router.message(F.document, F.caption.startswith("/restore"))
+async def restore_cmd(m: Message, bot: Bot):
+    """Скрытая команда администратора для переезда: файл musicbot.db или avatars.zip с подписью /restore."""
+    if m.from_user.id not in webapp.ADMINS:
+        return  # остальным молчим
+    doc = m.document
+    name = (doc.file_name or "").lower()
+    if doc.file_size and doc.file_size > 20 * 1024 * 1024:
+        await m.answer("The file is larger than 20 MB: Telegram does not let bots download it.")
+        return
+    if not name.endswith((".db", ".zip")):
+        await m.answer("Send musicbot.db or avatars.zip with the caption /restore.")
+        return
+    workdir = download.DOWNLOAD_DIR / f"restore-{uuid.uuid4().hex[:8]}"
+    workdir.mkdir(parents=True, exist_ok=True)
+    try:
+        src = workdir / ("incoming.db" if name.endswith(".db") else "incoming.zip")
+        await bot.download(doc, destination=src)
+        if name.endswith(".db"):
+            counts, backup = await restore.replace_database(src)
+            summary = ", ".join(f"{t}: {n}" for t, n in counts.items())
+            kept = f"\nPrevious database saved as {backup.name}." if backup else ""
+            await m.answer(f"Database restored ({summary}).\nStored at {db.DB_PATH}.{kept}")
+        else:
+            n = await asyncio.to_thread(restore.restore_avatars, src, webapp.AVATAR_DIR)
+            await m.answer(f"Profile pictures restored: {n}.\nStored in {webapp.AVATAR_DIR}.")
+    except Exception as e:
+        logging.exception("restore failed")
+        await m.answer(f"Restore failed: {e}")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 FAV_BATCH = 10  # столько песен отправляем за одно нажатие «Play all»

@@ -38,3 +38,11 @@ def test_file_token_depends_on_the_bot_token(monkeypatch):
 @pytest.mark.parametrize("bad", ["../secret", "abc", "g" * 32, "A" * 32, ""])
 def test_malformed_tokens_never_reach_the_disk(bad):
     assert favcache.find(bad) is None
+
+
+def test_dashboard_address_without_scheme_becomes_https():
+    from musicbot.bot import https_url
+
+    assert https_url("bot-1792176473-8577-rese.bothost.tech") == "https://bot-1792176473-8577-rese.bothost.tech"
+    assert https_url(" https://example.com/ ") == "https://example.com"
+    assert https_url("") == ""
