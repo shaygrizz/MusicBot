@@ -1,5 +1,6 @@
 """Audius — открытая музыкальная платформа (независимые артисты, ремиксы). API бесплатный, без ключа.
 Документация: https://docs.audius.org"""
+
 import json
 import urllib.parse
 import urllib.request
@@ -22,13 +23,15 @@ def search(query: str, limit: int = 6) -> list[dict]:
         if t.get("is_streamable") is False or t.get("is_delete"):
             continue
         art = t.get("artwork") or {}
-        out.append({
-            "id": t["id"],
-            "title": t.get("title") or "Без названия",
-            "artist": (t.get("user") or {}).get("name", ""),
-            "duration": int(t.get("duration") or 0),
-            "cover": art.get("480x480") or art.get("150x150") or "",
-        })
+        out.append(
+            {
+                "id": t["id"],
+                "title": t.get("title") or "Без названия",
+                "artist": (t.get("user") or {}).get("name", ""),
+                "duration": int(t.get("duration") or 0),
+                "cover": art.get("480x480") or art.get("150x150") or "",
+            }
+        )
     return out
 
 

@@ -1,4 +1,5 @@
 """Постоянный кэш звука для избранного: песня скачивается один раз, дальше играет с диска."""
+
 import asyncio
 import hashlib
 import hmac
@@ -7,10 +8,7 @@ import re
 import shutil
 from pathlib import Path
 
-import db
-import downloader
-import paths
-import search
+from . import db, download, paths, search
 
 CACHE_DIR = paths.FAVORITES
 MAX_FILES = 400  # старые файлы удаляются, чтобы папка не росла бесконечно
@@ -39,15 +37,14 @@ def media_type(path: Path) -> str:
 
 
 def _prune() -> None:
-    files = sorted((p for p in CACHE_DIR.glob("*.*") if p.suffix in (".m4a", ".mp3")),
-                   key=lambda p: p.stat().st_mtime)
-    for p in files[:max(0, len(files) - MAX_FILES)]:
+    files = sorted((p for p in CACHE_DIR.glob("*.*") if p.suffix in (".m4a", ".mp3")), key=lambda p: p.stat().st_mtime)
+    for p in files[: max(0, len(files) - MAX_FILES)]:
         p.unlink(missing_ok=True)
 
 
 async def _download(token: str, artist: str, title: str, duration: int, cover: str) -> Path:
     lazy = search.lazy_for(artist, title, duration)
-    meta = downloader.SearchResult(id="", title=title, artist=artist, duration=duration, url=lazy, thumb_url=cover)
+    meta = download.SearchResult(id="", title=title, artist=artist, duration=duration, url=lazy, thumb_url=cover)
     d = await search.fetch_audio(lazy, meta)  # источник подбирается сам, при сбое пробуются другие версии
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)

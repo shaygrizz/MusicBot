@@ -15,3 +15,10 @@ __pycache__/
 .claude/
 CLAUDE.md
 run.bat
+run.sh
+tests/
+docs/
+.github/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/

@@ -24,4 +24,4 @@ RUN python -c "import static_ffmpeg; static_ffmpeg.add_paths()"
 COPY . .
 
 # Постоянное хранилище Amvera монтируется в /data (база, фото профилей, кэш избранного, cookies.txt)
-CMD ["python", "bot.py"]
+CMD ["python", "-m", "musicbot"]

@@ -3,6 +3,7 @@
 Это не API, а разбор страницы поиска, поэтому может перестать работать, если сайт поменяет разметку.
 Сайт не лицензирован правообладателями, он служит запасным источником, когда песни нет в других местах.
 """
+
 import json
 import time
 import urllib.parse
@@ -46,14 +47,16 @@ def search(query: str, limit: int = 8) -> list[dict]:
         if not meta.get("url") or not meta.get("title"):
             continue
         dur = el.select_one(".track__fulltime")
-        out.append({
-            "id": str(meta.get("id") or meta["url"][-24:]),
-            "artist": (meta.get("artist") or "").strip(),
-            "title": meta["title"].strip(),
-            "duration": _seconds(dur.text) if dur else 0,
-            "url": _absolute(meta["url"]),
-            "cover": meta.get("img") or "",
-        })
+        out.append(
+            {
+                "id": str(meta.get("id") or meta["url"][-24:]),
+                "artist": (meta.get("artist") or "").strip(),
+                "title": meta["title"].strip(),
+                "duration": _seconds(dur.text) if dur else 0,
+                "url": _absolute(meta["url"]),
+                "cover": meta.get("img") or "",
+            }
+        )
         if len(out) >= limit:
             break
     return out
@@ -73,5 +76,5 @@ def download(url: str, dest) -> None:
             return
         except Exception as e:
             last = e
-            time.sleep(0.5 * 2 ** attempt)
+            time.sleep(0.5 * 2**attempt)
     raise last  # type: ignore[misc]

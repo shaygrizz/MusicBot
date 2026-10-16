@@ -46,7 +46,7 @@ LINES: dict[str, str] = {
     "more_button": "🟠 More Tracks",
     "nothing": "No results. Try artist and title, or send a link.",
     "nothing_deep": "No results.",
-    "catalog_hint": "Found \"{hint}\" in the catalog, but no download source. Try sending a link.",
+    "catalog_hint": 'Found "{hint}" in the catalog, but no download source. Try sending a link.',
     "search_error": "Search failed. Try again.",
     "ask_link": "Choose format:",
     "btn_audio": "Audio",

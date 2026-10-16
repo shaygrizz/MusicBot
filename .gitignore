@@ -8,3 +8,9 @@ data/
 tools/cloudflared/
 .claude/
 cookies.txt
+CLAUDE.md
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/

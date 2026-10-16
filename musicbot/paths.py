@@ -1,5 +1,6 @@
 """Где лежат данные. Без DATA_DIR всё остаётся рядом с кодом, как на домашнем компьютере.
 На хостинге DATA_DIR=/data указывает на постоянное хранилище, которое переживает пересборку."""
+
 import os
 from pathlib import Path
 
@@ -13,8 +14,11 @@ if _root:
     COOKIES = DATA_DIR / "cookies.txt"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 else:
-    _here = Path(__file__).parent
+    _here = Path(__file__).parent.parent
     DB = Path("musicbot.db")
     AVATARS = _here / "data" / "avatars"
     FAVORITES = _here / "data" / "favorites"
     COOKIES = Path("cookies.txt")
+
+# временные файлы скачивания: у каждой загрузки своя папка, при запуске бота папка очищается
+DOWNLOAD_DIR = Path("downloads")

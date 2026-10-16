@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "musicbot"
+version = "1.0.0"
+description = "Telegram bot that finds and delivers music, with a Mini App dashboard"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "aiogram>=3.31,<4",
+    "aiohttp>=3.14,<4",
+    "aiosqlite>=0.22",
+    "beautifulsoup4>=4.15",
+    "mutagen>=1.48",
+    "python-dotenv>=1.2",
+    "static-ffmpeg>=3.0",
+    "yt-dlp>=2026.8.19",
+    "ytmusicapi>=1.12",
+]
+
+[project.optional-dependencies]
+shazam = ["shazamio>=0.8.1"]
+dev = ["pytest>=9", "pytest-asyncio>=1.0", "ruff>=0.15"]
+
+[tool.setuptools.packages.find]
+include = ["musicbot*"]
+
+[tool.setuptools.package-data]
+musicbot = ["web/static/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = [".venv", ".venv312", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "E501",  # длинные строки с комментариями на русском читаются лучше без переноса
+    "B008", "B904", "B905",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"

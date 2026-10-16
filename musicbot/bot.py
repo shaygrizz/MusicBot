@@ -24,19 +24,9 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
     WebAppInfo,
 )
-from dotenv import load_dotenv
 
-load_dotenv()  # до импорта модулей, которые читают .env при загрузке
-
-import db
-import downloader
-import favcache
-import favorites
-import recognize
-import search
-import texts
-import tunnel
-import webapp
+from . import db, download, favcache, favorites, recognize, search, texts, tunnel
+from .web import app as webapp
 
 TOKEN = os.getenv("BOT_TOKEN", "")
 ALLOWED = {int(x) for x in os.getenv("ALLOWED_USERS", "").replace(" ", "").split(",") if x}
@@ -45,7 +35,7 @@ webapp_url = os.getenv("WEBAPP_URL", "").strip().rstrip("/")  # свой https-�
 
 router = Router()
 # короткие токены для callback_data (лимит 64 байта) -> (url, метаданные из поиска)
-pending: dict[str, tuple[str, downloader.SearchResult | None]] = {}
+pending: dict[str, tuple[str, download.SearchResult | None]] = {}
 deep_queries: dict[str, str] = {}  # токен кнопки «Искать глубже» -> очищенный запрос
 # предзагрузка: url -> (время старта, задача скачивания аудио)
 prefetch: dict[str, tuple[float, asyncio.Task]] = {}
@@ -69,18 +59,18 @@ def _drop_prefetch(url: str) -> None:
             )
 
 
-async def warm_lazy(r: downloader.SearchResult) -> None:
+async def warm_lazy(r: download.SearchResult) -> None:
     """Песня из каталога: заранее находим скачиваемую версию и достаём ссылку на звук.
     К моменту нажатия остаётся только сама загрузка."""
     try:
         cands = await search.resolve(r)
         if cands:
-            await downloader.warm(cands[0].url)
+            await download.warm(cands[0].url)
     except Exception:
         pass
 
 
-def start_prefetch(results: list[downloader.SearchResult]) -> None:
+def start_prefetch(results: list[download.SearchResult]) -> None:
     now = time.time()
     for url in [u for u, (ts, _) in prefetch.items() if now - ts > PREFETCH_TTL]:
         _drop_prefetch(url)
@@ -90,8 +80,8 @@ def start_prefetch(results: list[downloader.SearchResult]) -> None:
     for r in playable[:PREFETCH_TOP]:
         if r.url not in prefetch:
             prefetch[r.url] = (now, asyncio.create_task(search.fetch_audio(r.url, r)))
-    for r in playable[PREFETCH_TOP:PREFETCH_TOP + 4]:  # остальным заранее достаём ссылку на звук (экономит 2–3 с)
-        asyncio.create_task(downloader.warm(r.url))
+    for r in playable[PREFETCH_TOP : PREFETCH_TOP + 4]:  # остальным заранее достаём ссылку на звук (экономит 2–3 с)
+        asyncio.create_task(download.warm(r.url))
 
 
 def fmt_dur(sec: int) -> str:
@@ -100,7 +90,7 @@ def fmt_dur(sec: int) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
-def remember(url: str, meta: downloader.SearchResult | None = None) -> str:
+def remember(url: str, meta: download.SearchResult | None = None) -> str:
     key = uuid.uuid4().hex[:10]
     pending[key] = (url, meta)
     if len(pending) > 2000:
@@ -139,9 +129,13 @@ async def app_cmd(m: Message):
     if not webapp_url:
         await m.answer(texts.say("app_unavailable"))
         return
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=texts.say("app_button"), web_app=WebAppInfo(url=webapp_url)),
-    ]])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=texts.say("app_button"), web_app=WebAppInfo(url=webapp_url)),
+            ]
+        ]
+    )
     await m.answer(texts.say("app_text"), reply_markup=kb)
 
 
@@ -157,15 +151,16 @@ async def stats(m: Message):
         await m.answer(texts.say("stats_empty"))
         return
     hours = s["seconds"] / 3600
-    lines = [texts.say("stats_title"), texts.say("stats_tracks", n=s["total"]),
-             texts.say("stats_time", hours=hours)]
+    lines = [texts.say("stats_title"), texts.say("stats_tracks", n=s["total"]), texts.say("stats_time", hours=hours)]
     if s["top_artists"]:
         lines.append(texts.say("stats_top_artists"))
         lines += [f"{i}. {html.escape(a)} ({c})" for i, (a, c) in enumerate(s["top_artists"], 1)]
     if s["top_tracks"]:
         lines.append(texts.say("stats_top_tracks"))
-        lines += [f"{i}. {html.escape(t)}, {html.escape(a or 'unknown')} ({c})"
-                  for i, (t, a, c) in enumerate(s["top_tracks"], 1)]
+        lines += [
+            f"{i}. {html.escape(t)}, {html.escape(a or 'unknown')} ({c})"
+            for i, (t, a, c) in enumerate(s["top_tracks"], 1)
+        ]
     await m.answer("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -180,8 +175,9 @@ async def admin(m: Message):
     if not webapp_url:
         await m.answer("The dashboard address is not ready yet. Try again in a minute.")
         return
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Open admin", web_app=WebAppInfo(url=f"{webapp_url}/admin"))]])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Open admin", web_app=WebAppInfo(url=f"{webapp_url}/admin"))]]
+    )
     await m.answer("Admin panel.", reply_markup=kb)
 
 
@@ -194,7 +190,9 @@ def quick_keyboard() -> ReplyKeyboardMarkup:
     """Постоянные кнопки под полем ввода: плейлист «любимого» и дашборд всегда под рукой."""
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=texts.say("kb_favorites")), KeyboardButton(text=texts.say("kb_dashboard"))]],
-        resize_keyboard=True, is_persistent=True)
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 def favorites_keyboard(favs: list[dict]) -> InlineKeyboardMarkup:
@@ -207,11 +205,15 @@ def favorites_keyboard(favs: list[dict]) -> InlineKeyboardMarkup:
             return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=f"{webapp_url}/?{query}"))
         return InlineKeyboardButton(text=text, callback_data=fallback)
 
-    rows = [[play_button(texts.say("fav_play_all"), "play=favorites", "favplay:all:0")],
-            [play_button(texts.say("fav_shuffle"), "play=shuffle", "favplay:shuf:0")]]
-    numbers = [play_button(f"▶ {i}", f"play=favorites&i={i}", f"favplay:one:{f['id']}")
-               for i, f in enumerate(favs[:FAV_SHOWN], 1)]
-    rows += [numbers[k:k + 5] for k in range(0, len(numbers), 5)]
+    rows = [
+        [play_button(texts.say("fav_play_all"), "play=favorites", "favplay:all:0")],
+        [play_button(texts.say("fav_shuffle"), "play=shuffle", "favplay:shuf:0")],
+    ]
+    numbers = [
+        play_button(f"▶ {i}", f"play=favorites&i={i}", f"favplay:one:{f['id']}")
+        for i, f in enumerate(favs[:FAV_SHOWN], 1)
+    ]
+    rows += [numbers[k : k + 5] for k in range(0, len(numbers), 5)]
     rows.append([InlineKeyboardButton(text=texts.say("fav_send"), callback_data="favplay:all:0")])  # файлы в чат
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -266,7 +268,7 @@ async def on_favplay(cb: CallbackQuery, bot: Bot):
             offset = max(0, int(arg))
         except ValueError:
             offset = 0
-        batch = favs[offset:offset + FAV_BATCH]
+        batch = favs[offset : offset + FAV_BATCH]
         if offset + FAV_BATCH < len(favs):
             next_offset = offset + FAV_BATCH
     if not batch:
@@ -283,8 +285,11 @@ async def on_favplay(cb: CallbackQuery, bot: Bot):
         playing_favs.discard(uid)
     if next_offset is not None:
         n = min(FAV_BATCH, len(favs) - next_offset)
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=texts.say("fav_next", n=n), callback_data=f"favplay:all:{next_offset}")]])
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=texts.say("fav_next", n=n), callback_data=f"favplay:all:{next_offset}")]
+            ]
+        )
         await cb.message.answer(texts.say("fav_more", n=len(favs) - next_offset), reply_markup=kb)
 
 
@@ -299,7 +304,7 @@ async def on_media(m: Message, bot: Bot):
         await m.answer(texts.say("input_too_big"))
         return
     status = await m.answer(texts.say("recognizing"))
-    workdir = downloader.DOWNLOAD_DIR / f"in_{uuid.uuid4().hex[:8]}"
+    workdir = download.DOWNLOAD_DIR / f"in_{uuid.uuid4().hex[:8]}"
     workdir.mkdir(parents=True, exist_ok=True)
     try:
         src = workdir / "input"
@@ -324,8 +329,9 @@ async def on_media(m: Message, bot: Bot):
     if not outcome.results:
         await status.edit_text(texts.say("versions_none", **fields), parse_mode=ParseMode.HTML)
         return
-    await status.edit_text(texts.say("recognized", **fields), parse_mode=ParseMode.HTML,
-                           reply_markup=results_keyboard(outcome.results))
+    await status.edit_text(
+        texts.say("recognized", **fields), parse_mode=ParseMode.HTML, reply_markup=results_keyboard(outcome.results)
+    )
     start_prefetch(outcome.results)
 
 
@@ -335,7 +341,7 @@ async def on_text(m: Message):
         return
     await db.touch_user(m.from_user.id, m.from_user.full_name)
     text = m.text.strip()
-    url = downloader.extract_url(text)
+    url = download.extract_url(text)
     if url:
         if is_music_video(url):
             await run_link_music(m, url)
@@ -359,10 +365,12 @@ def link_keyboard(url: str) -> InlineKeyboardMarkup:
 
 def link_buttons(url: str, audio_label: str | None = None) -> list[list[InlineKeyboardButton]]:
     key = remember(url)
-    return [[
-        InlineKeyboardButton(text=audio_label or texts.say("btn_audio"), callback_data=f"dl:a:{key}"),
-        InlineKeyboardButton(text=texts.say("btn_video"), callback_data=f"dl:v:{key}"),
-    ]]
+    return [
+        [
+            InlineKeyboardButton(text=audio_label or texts.say("btn_audio"), callback_data=f"dl:a:{key}"),
+            InlineKeyboardButton(text=texts.say("btn_video"), callback_data=f"dl:v:{key}"),
+        ]
+    ]
 
 
 async def run_link_music(m: Message, url: str):
@@ -371,7 +379,7 @@ async def run_link_music(m: Message, url: str):
     status = await m.answer(texts.say("recognizing"))
     rec = None
     try:
-        d = await downloader.download(url, "audio", None)  # звук ролика (у TikTok это «оригинальный звук»)
+        d = await download.download(url, "audio", None)  # звук ролика (у TikTok это «оригинальный звук»)
         try:
             rec = await recognize.recognize(d.path)
         finally:
@@ -389,11 +397,17 @@ async def run_link_music(m: Message, url: str):
         logging.exception("versions search failed")
         outcome = None
     if not outcome or not outcome.results:
-        await status.edit_text(texts.say("versions_none", **fields), parse_mode=ParseMode.HTML,
-                               reply_markup=InlineKeyboardMarkup(inline_keyboard=raw))
+        await status.edit_text(
+            texts.say("versions_none", **fields),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=raw),
+        )
         return
-    await status.edit_text(texts.say("recognized", **fields), parse_mode=ParseMode.HTML,
-                           reply_markup=results_keyboard(outcome.results, extra_rows=raw))
+    await status.edit_text(
+        texts.say("recognized", **fields),
+        parse_mode=ParseMode.HTML,
+        reply_markup=results_keyboard(outcome.results, extra_rows=raw),
+    )
     start_prefetch(outcome.results)
 
 
@@ -429,8 +443,9 @@ async def run_search(m: Message, text: str):
             results = vers.results
             header = texts.say("versions_found", title=html.escape(first.title), artist=html.escape(first.artist))
             parse_mode = ParseMode.HTML
-    await wait.edit_text(header, parse_mode=parse_mode,
-                         reply_markup=results_keyboard(results, deep_key, more=is_artist))
+    await wait.edit_text(
+        header, parse_mode=parse_mode, reply_markup=results_keyboard(results, deep_key, more=is_artist)
+    )
     start_prefetch(results)
 
 
@@ -442,9 +457,12 @@ def remember_query(q: str) -> str:
     return key
 
 
-def results_keyboard(results: list[downloader.SearchResult], deep_key: str | None = None,
-                     more: bool = False,
-                     extra_rows: list[list[InlineKeyboardButton]] | None = None) -> InlineKeyboardMarkup:
+def results_keyboard(
+    results: list[download.SearchResult],
+    deep_key: str | None = None,
+    more: bool = False,
+    extra_rows: list[list[InlineKeyboardButton]] | None = None,
+) -> InlineKeyboardMarkup:
     rows = []
     for r in results:
         key = remember(r.url, r)
@@ -543,9 +561,14 @@ async def on_download(cb: CallbackQuery, bot: Bot):
             file_id, title, artist, duration = cached
             play_id = await db.log_play(cb.from_user.id, title, artist, duration, "cache", url, kind, cover)
             if kind == "audio":
-                await bot.send_audio(cb.message.chat.id, file_id, title=title, performer=artist,
-                                     duration=duration,
-                                     reply_markup=fav_keyboard(play_id, await db.fav_has(cb.from_user.id, artist, title)))
+                await bot.send_audio(
+                    cb.message.chat.id,
+                    file_id,
+                    title=title,
+                    performer=artist,
+                    duration=duration,
+                    reply_markup=fav_keyboard(play_id, await db.fav_has(cb.from_user.id, artist, title)),
+                )
             else:
                 await bot.send_video(cb.message.chat.id, file_id, duration=duration)
         else:
@@ -554,22 +577,29 @@ async def on_download(cb: CallbackQuery, bot: Bot):
             elif kind == "audio":
                 d = await search.fetch_audio(url, meta)  # при сбое сам пробует другие версии и запасные источники
             else:
-                d = await downloader.download(url, kind, meta)
+                d = await download.download(url, kind, meta)
             try:
                 thumb = FSInputFile(d.thumb) if d.thumb else None
-                play_id = await db.log_play(cb.from_user.id, d.title, d.artist, d.duration, d.source,
-                                            url, kind, cover)
+                play_id = await db.log_play(cb.from_user.id, d.title, d.artist, d.duration, d.source, url, kind, cover)
                 if kind == "audio":
                     sent = await bot.send_audio(
-                        cb.message.chat.id, FSInputFile(d.path), title=d.title,
-                        performer=d.artist, duration=d.duration, thumbnail=thumb,
+                        cb.message.chat.id,
+                        FSInputFile(d.path),
+                        title=d.title,
+                        performer=d.artist,
+                        duration=d.duration,
+                        thumbnail=thumb,
                         reply_markup=fav_keyboard(play_id, await db.fav_has(cb.from_user.id, d.artist, d.title)),
                     )
                     file_id = sent.audio.file_id
                 else:
                     sent = await bot.send_video(
-                        cb.message.chat.id, FSInputFile(d.path), caption=d.title[:200],
-                        duration=d.duration, thumbnail=thumb, supports_streaming=True,
+                        cb.message.chat.id,
+                        FSInputFile(d.path),
+                        caption=d.title[:200],
+                        duration=d.duration,
+                        thumbnail=thumb,
+                        supports_streaming=True,
                     )
                     file_id = sent.video.file_id
                 await db.set_cached(cache_key, file_id, d.title, d.artist, d.duration)
@@ -595,7 +625,8 @@ async def setup_webapp(bot: Bot, bot_username: str):
         return None
     try:
         await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text=texts.say("menu_button"), web_app=WebAppInfo(url=webapp_url)))
+            menu_button=MenuButtonWebApp(text=texts.say("menu_button"), web_app=WebAppInfo(url=webapp_url))
+        )
     except Exception:
         logging.exception("не удалось установить кнопку меню")
     logging.info("Дашборд: %s", webapp_url)
@@ -604,23 +635,26 @@ async def setup_webapp(bot: Bot, bot_username: str):
 
 async def main():
     logging.basicConfig(level=logging.INFO)
+    download.init()
     if not TOKEN:
         raise SystemExit("Нет BOT_TOKEN в .env")
     await db.init_db()
-    asyncio.create_task(asyncio.to_thread(downloader._get_ytm))  # прогрев: первый поиск без задержки
+    asyncio.create_task(asyncio.to_thread(download.get_ytm))  # прогрев: первый поиск без задержки
     bot = Bot(TOKEN)
     dp = Dispatcher()
     dp.include_router(router)
     me = await bot.get_me()
     logging.info("Бот запущен: @%s", me.username)
     try:
-        await bot.set_my_commands([
-            BotCommand(command="favorites", description=texts.say("cmd_favorites")),
-            BotCommand(command="app", description=texts.say("cmd_app")),
-            BotCommand(command="stats", description=texts.say("cmd_stats")),
-            BotCommand(command="help", description=texts.say("cmd_help")),
-            BotCommand(command="start", description=texts.say("cmd_start")),
-        ])
+        await bot.set_my_commands(
+            [
+                BotCommand(command="favorites", description=texts.say("cmd_favorites")),
+                BotCommand(command="app", description=texts.say("cmd_app")),
+                BotCommand(command="stats", description=texts.say("cmd_stats")),
+                BotCommand(command="help", description=texts.say("cmd_help")),
+                BotCommand(command="start", description=texts.say("cmd_start")),
+            ]
+        )
         await bot.set_my_description(texts.say("bot_description"))
         await bot.set_my_short_description(texts.say("bot_short"))
     except Exception:
@@ -631,7 +665,3 @@ async def main():
     finally:
         if tunnel_proc and tunnel_proc.returncode is None:
             tunnel_proc.terminate()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

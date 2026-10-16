@@ -3,7 +3,7 @@ import time
 
 import aiosqlite
 
-import paths
+from . import paths
 
 DB_PATH = str(paths.DB)
 
@@ -72,13 +72,17 @@ async def get_profile(user_id: int) -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT display_name, avatar_token, bg_token FROM users WHERE user_id=?", (user_id,))
         row = await cur.fetchone()
-    return {"name": (row[0] or "") if row else "", "avatar_token": (row[1] or "") if row else "",
-            "bg_token": (row[2] or "") if row else ""}
+    return {
+        "name": (row[0] or "") if row else "",
+        "avatar_token": (row[1] or "") if row else "",
+        "bg_token": (row[2] or "") if row else "",
+    }
 
 
 async def _ensure_user(db, user_id: int) -> None:
-    await db.execute("INSERT OR IGNORE INTO users(user_id, name, first_seen) VALUES (?,?,?)",
-                     (user_id, "", int(time.time())))
+    await db.execute(
+        "INSERT OR IGNORE INTO users(user_id, name, first_seen) VALUES (?,?,?)", (user_id, "", int(time.time()))
+    )
 
 
 async def set_display_name(user_id: int, name: str) -> None:
@@ -106,12 +110,16 @@ async def admin_overview() -> dict:
     """Сводка для админки: общие числа и список всех пользователей."""
     now = int(time.time())
     async with aiosqlite.connect(DB_PATH) as db:
+
         async def one(sql, *args):
             cur = await db.execute(sql, args)
             return (await cur.fetchone())[0] or 0
+
         totals = {
-            "users": await one("SELECT COUNT(*) FROM (SELECT user_id FROM users UNION SELECT user_id FROM plays"
-                               " UNION SELECT user_id FROM favorites)"),
+            "users": await one(
+                "SELECT COUNT(*) FROM (SELECT user_id FROM users UNION SELECT user_id FROM plays"
+                " UNION SELECT user_id FROM favorites)"
+            ),
             "plays": await one("SELECT COUNT(*) FROM plays"),
             "plays_24h": await one("SELECT COUNT(*) FROM plays WHERE ts>?", now - 86400),
             "plays_7d": await one("SELECT COUNT(*) FROM plays WHERE ts>?", now - 7 * 86400),
@@ -124,12 +132,25 @@ async def admin_overview() -> dict:
             " (SELECT MAX(ts) FROM plays p WHERE p.user_id=i.user_id),"
             " (SELECT COUNT(*) FROM favorites f WHERE f.user_id=i.user_id)"
             " FROM (SELECT user_id FROM users UNION SELECT user_id FROM plays UNION SELECT user_id FROM favorites) i"
-            " LEFT JOIN users u ON u.user_id=i.user_id ORDER BY 8 DESC, u.first_seen DESC")
-        users = [{"id": i, "tg_name": n or "", "name": dn or "", "first_seen": fs or 0,
-                  "avatar": av or "", "bg": bg or "", "plays": pc, "last": last or 0, "favorites": fc}
-                 for i, n, dn, fs, av, bg, pc, last, fc in await cur.fetchall()]
+            " LEFT JOIN users u ON u.user_id=i.user_id ORDER BY 8 DESC, u.first_seen DESC"
+        )
+        users = [
+            {
+                "id": i,
+                "tg_name": n or "",
+                "name": dn or "",
+                "first_seen": fs or 0,
+                "avatar": av or "",
+                "bg": bg or "",
+                "plays": pc,
+                "last": last or 0,
+                "favorites": fc,
+            }
+            for i, n, dn, fs, av, bg, pc, last, fc in await cur.fetchall()
+        ]
         cur = await db.execute(
-            "SELECT title, artist, COUNT(*) c FROM plays GROUP BY LOWER(title), LOWER(artist) ORDER BY c DESC LIMIT 10")
+            "SELECT title, artist, COUNT(*) c FROM plays GROUP BY LOWER(title), LOWER(artist) ORDER BY c DESC LIMIT 10"
+        )
         top = [{"title": t or "", "artist": a or "", "plays": c} for t, a, c in await cur.fetchall()]
     return {"totals": totals, "users": users, "top_tracks": top}
 
@@ -138,9 +159,12 @@ async def admin_user(user_id: int) -> dict:
     """Подробности одного пользователя: последние прослушивания и избранное."""
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "SELECT title, artist, source, kind, ts FROM plays WHERE user_id=? ORDER BY id DESC LIMIT 50", (user_id,))
-        plays = [{"title": t or "", "artist": a or "", "source": s or "", "kind": k or "", "ts": ts or 0}
-                 for t, a, s, k, ts in await cur.fetchall()]
+            "SELECT title, artist, source, kind, ts FROM plays WHERE user_id=? ORDER BY id DESC LIMIT 50", (user_id,)
+        )
+        plays = [
+            {"title": t or "", "artist": a or "", "source": s or "", "kind": k or "", "ts": ts or 0}
+            for t, a, s, k, ts in await cur.fetchall()
+        ]
     return {"plays": plays, "favorites": await fav_list(user_id, 100)}
 
 
@@ -148,16 +172,17 @@ async def fav_list(user_id: int, limit: int = 200) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             "SELECT id, key, title, artist, duration, cover FROM favorites WHERE user_id=? ORDER BY id DESC LIMIT ?",
-            (user_id, limit))
+            (user_id, limit),
+        )
         rows = await cur.fetchall()
-    return [{"id": i, "key": k, "title": t, "artist": a, "duration": d or 0, "cover": c or ""}
-            for i, k, t, a, d, c in rows]
+    return [
+        {"id": i, "key": k, "title": t, "artist": a, "duration": d or 0, "cover": c or ""} for i, k, t, a, d, c in rows
+    ]
 
 
 async def fav_has(user_id: int, artist: str, title: str) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT 1 FROM favorites WHERE user_id=? AND key=?",
-                               (user_id, fav_key(artist, title)))
+        cur = await db.execute("SELECT 1 FROM favorites WHERE user_id=? AND key=?", (user_id, fav_key(artist, title)))
         return await cur.fetchone() is not None
 
 
@@ -165,7 +190,8 @@ async def fav_add(user_id: int, artist: str, title: str, duration: int = 0, cove
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT OR IGNORE INTO favorites(user_id, key, title, artist, duration, cover, ts) VALUES (?,?,?,?,?,?,?)",
-            (user_id, fav_key(artist, title), title, artist, duration, cover, int(time.time())))
+            (user_id, fav_key(artist, title), title, artist, duration, cover, int(time.time())),
+        )
         await db.commit()
 
 
@@ -181,8 +207,13 @@ async def get_play(play_id: int) -> dict | None:
         row = await cur.fetchone()
     if not row:
         return None
-    return {"user_id": row[0], "title": row[1] or "", "artist": row[2] or "", "duration": row[3] or 0,
-            "cover": row[4] or ""}
+    return {
+        "user_id": row[0],
+        "title": row[1] or "",
+        "artist": row[2] or "",
+        "duration": row[3] or 0,
+        "cover": row[4] or "",
+    }
 
 
 async def touch_user(user_id: int, name: str) -> None:
@@ -196,9 +227,7 @@ async def touch_user(user_id: int, name: str) -> None:
 
 async def get_cached(key: str):
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            "SELECT file_id, title, artist, duration FROM cache WHERE key=?", (key,)
-        )
+        cur = await db.execute("SELECT file_id, title, artist, duration FROM cache WHERE key=?", (key,))
         return await cur.fetchone()
 
 
@@ -211,8 +240,9 @@ async def set_cached(key: str, file_id: str, title: str, artist: str, duration: 
         await db.commit()
 
 
-async def log_play(user_id: int, title: str, artist: str, duration: int,
-                   source: str, url: str, kind: str, cover: str = "") -> int:
+async def log_play(
+    user_id: int, title: str, artist: str, duration: int, source: str, url: str, kind: str, cover: str = ""
+) -> int:
     """Записывает прослушивание и возвращает его id (на него ссылается кнопка «в избранное»)."""
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
@@ -227,30 +257,44 @@ async def log_play(user_id: int, title: str, artist: str, duration: int,
 async def dashboard(user_id: int) -> dict:
     """Всё для мини-аппа: итоги, активность по дням и часам, топы, последние треки."""
     async with aiosqlite.connect(DB_PATH) as db:
+
         async def rows(sql, *args):
             cur = await db.execute(sql, args)
             return await cur.fetchall()
 
-        total, seconds, first_ts = (await rows(
-            "SELECT COUNT(*), COALESCE(SUM(duration),0), MIN(ts) FROM plays WHERE user_id=?", user_id))[0]
+        total, seconds, first_ts = (
+            await rows("SELECT COUNT(*), COALESCE(SUM(duration),0), MIN(ts) FROM plays WHERE user_id=?", user_id)
+        )[0]
         days = await rows(
             "SELECT strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime') d, COUNT(*) "
-            "FROM plays WHERE user_id=? AND ts >= strftime('%s','now','-60 day') GROUP BY d", user_id)
+            "FROM plays WHERE user_id=? AND ts >= strftime('%s','now','-60 day') GROUP BY d",
+            user_id,
+        )
         hours = await rows(
             "SELECT CAST(strftime('%H', ts, 'unixepoch', 'localtime') AS INTEGER) h, COUNT(*) "
-            "FROM plays WHERE user_id=? GROUP BY h", user_id)
+            "FROM plays WHERE user_id=? GROUP BY h",
+            user_id,
+        )
         top_artists = await rows(
             "SELECT artist, COUNT(*) c, COALESCE(SUM(duration),0) FROM plays "
-            "WHERE user_id=? AND artist != '' GROUP BY artist ORDER BY c DESC, 3 DESC LIMIT 8", user_id)
+            "WHERE user_id=? AND artist != '' GROUP BY artist ORDER BY c DESC, 3 DESC LIMIT 8",
+            user_id,
+        )
         top_tracks = await rows(
             "SELECT title, artist, COUNT(*) c FROM plays WHERE user_id=? "
-            "GROUP BY title, artist ORDER BY c DESC LIMIT 8", user_id)
+            "GROUP BY title, artist ORDER BY c DESC LIMIT 8",
+            user_id,
+        )
         recent = await rows(
-            "SELECT title, artist, duration, ts FROM plays WHERE user_id=? ORDER BY id DESC LIMIT 12", user_id)
+            "SELECT title, artist, duration, ts FROM plays WHERE user_id=? ORDER BY id DESC LIMIT 12", user_id
+        )
         sources = await rows(
-            "SELECT source, COUNT(*) FROM plays WHERE user_id=? GROUP BY source ORDER BY 2 DESC", user_id)
+            "SELECT source, COUNT(*) FROM plays WHERE user_id=? GROUP BY source ORDER BY 2 DESC", user_id
+        )
     return {
-        "total": total, "seconds": seconds, "first_ts": first_ts,
+        "total": total,
+        "seconds": seconds,
+        "first_ts": first_ts,
         "days": {d: c for d, c in days},
         "hours": {h: c for h, c in hours},
         "top_artists": [{"artist": a, "plays": c, "seconds": s} for a, c, s in top_artists],
@@ -263,16 +307,15 @@ async def dashboard(user_id: int) -> dict:
 async def top_artist_names(user_id: int, limit: int = 3) -> list[str]:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "SELECT artist FROM plays WHERE user_id=? AND artist != '' "
-            "GROUP BY artist ORDER BY COUNT(*) DESC LIMIT ?", (user_id, limit))
+            "SELECT artist FROM plays WHERE user_id=? AND artist != '' GROUP BY artist ORDER BY COUNT(*) DESC LIMIT ?",
+            (user_id, limit),
+        )
         return [r[0] for r in await cur.fetchall()]
 
 
 async def user_stats(user_id: int) -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            "SELECT COUNT(*), COALESCE(SUM(duration),0) FROM plays WHERE user_id=?", (user_id,)
-        )
+        cur = await db.execute("SELECT COUNT(*), COALESCE(SUM(duration),0) FROM plays WHERE user_id=?", (user_id,))
         total, seconds = await cur.fetchone()
         cur = await db.execute(
             "SELECT artist, COUNT(*) c FROM plays WHERE user_id=? AND artist != '' "

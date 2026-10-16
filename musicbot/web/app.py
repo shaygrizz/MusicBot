@@ -1,4 +1,5 @@
 """Веб-часть для Telegram Mini App: страница-дашборд и API с проверкой подписи Telegram."""
+
 import asyncio
 import hashlib
 import hmac
@@ -18,15 +19,11 @@ from aiogram import Bot
 from aiogram.types import FSInputFile
 from aiohttp import web
 
-import db
-import downloader
-import favcache
-import favorites as favlib  # внутри make_app есть обработчик с именем favorites
-import paths
-import search
-from downloader import Downloaded, SearchResult
+from .. import db, favcache, paths, search
+from .. import favorites as favlib  # внутри make_app есть обработчик с именем favorites
+from ..download import Downloaded, SearchResult
 
-INDEX = Path(__file__).parent / "webapp" / "index.html"
+INDEX = Path(__file__).parent / "static" / "index.html"
 INITDATA_MAX_AGE = 24 * 3600  # старше суток подпись не принимаем
 RECS_TTL = 6 * 3600
 _recs_cache: dict[int, tuple[float, list]] = {}
@@ -77,10 +74,15 @@ def _deezer_recs(artists: list[str]) -> list[dict]:
                 seen.add(rel["name"].lower())
                 top = _get_json(f"https://api.deezer.com/artist/{rel['id']}/top?limit=1").get("data", [])
                 if top:
-                    out.append({"artist": rel["name"], "title": top[0]["title"],
-                                "duration": int(top[0].get("duration") or 0),
-                                "cover": (top[0].get("album") or {}).get("cover_medium", ""),
-                                "because": name})
+                    out.append(
+                        {
+                            "artist": rel["name"],
+                            "title": top[0]["title"],
+                            "duration": int(top[0].get("duration") or 0),
+                            "cover": (top[0].get("album") or {}).get("cover_medium", ""),
+                            "because": name,
+                        }
+                    )
         except Exception as e:
             logging.info("рекомендации для %s: %s", name, str(e)[:80])
     return out[:10]
@@ -88,8 +90,16 @@ def _deezer_recs(artists: list[str]) -> list[dict]:
 
 def _deezer_chart() -> list[dict]:
     data = _get_json("https://api.deezer.com/chart/0/tracks?limit=10").get("data", [])
-    return [{"artist": t["artist"]["name"], "title": t["title"], "duration": int(t.get("duration") or 0),
-             "cover": (t.get("album") or {}).get("cover_medium", ""), "because": ""} for t in data]
+    return [
+        {
+            "artist": t["artist"]["name"],
+            "title": t["title"],
+            "duration": int(t.get("duration") or 0),
+            "cover": (t.get("album") or {}).get("cover_medium", ""),
+            "because": "",
+        }
+        for t in data
+    ]
 
 
 async def _recs(user_id: int) -> list[dict]:
@@ -124,10 +134,26 @@ def _make_avatar(data: bytes, dest: Path, w: int = 256, h: int = 256, q: int = 4
     tmp.write_bytes(data)
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", str(tmp), "-vf",
-             f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},format=yuvj420p", "-frames:v", "1",
-             "-q:v", str(q), "-map_metadata", "-1", str(dest)],
-            check=True, timeout=30, capture_output=True,
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                str(tmp),
+                "-vf",
+                f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},format=yuvj420p",
+                "-frames:v",
+                "1",
+                "-q:v",
+                str(q),
+                "-map_metadata",
+                "-1",
+                str(dest),
+            ],
+            check=True,
+            timeout=30,
+            capture_output=True,
         )
     finally:
         tmp.unlink(missing_ok=True)
@@ -222,9 +248,12 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         data = await db.dashboard(user["id"])
         data["user"] = {"id": user["id"], "name": user.get("first_name", "")}
         profile = await db.get_profile(user["id"])
-        data["profile"] = {"name": profile["name"], "tg_name": user.get("first_name", ""),
-                           "avatar": f"/avatar/{profile['avatar_token']}" if profile["avatar_token"] else None,
-                           "bg": f"/avatar/{profile['bg_token']}" if profile["bg_token"] else None}
+        data["profile"] = {
+            "name": profile["name"],
+            "tg_name": user.get("first_name", ""),
+            "avatar": f"/avatar/{profile['avatar_token']}" if profile["avatar_token"] else None,
+            "bg": f"/avatar/{profile['bg_token']}" if profile["bg_token"] else None,
+        }
         data["favorites"] = await db.fav_list(user["id"])
         data["bot"] = bot_username
         return web.json_response(data)
@@ -288,8 +317,9 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         if not title or not await db.fav_has(user["id"], artist, title):
             raise web.HTTPForbidden(text="not a favorite")  # по этому адресу качаем только то, что в избранном
         try:
-            token, path = await favcache.ensure(user["id"], artist, title, int(body.get("duration") or 0),
-                                                str(body.get("cover") or ""))
+            token, path = await favcache.ensure(
+                user["id"], artist, title, int(body.get("duration") or 0), str(body.get("cover") or "")
+            )
         except Exception as e:
             logging.warning("webapp: избранное не скачалось %s - %s: %s", artist, title, str(e)[:150])
             raise web.HTTPBadGateway(text="download failed")
@@ -299,8 +329,13 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         path = favcache.find(request.match_info["tok"])  # токен привязан к пользователю и треку, угадать его нельзя
         if path is None:
             raise web.HTTPNotFound()
-        return web.FileResponse(path, headers={"Content-Type": favcache.media_type(path),
-                                               "Cache-Control": "private, max-age=31536000, immutable"})
+        return web.FileResponse(
+            path,
+            headers={
+                "Content-Type": favcache.media_type(path),
+                "Cache-Control": "private, max-age=31536000, immutable",
+            },
+        )
 
     async def handoff(request: web.Request):
         """Передаёт очередь плеера в чат с ботом. Закрытая страница звук не играет, а плеер Telegram продолжает."""
@@ -374,8 +409,16 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         for r in sorted(out.results, key=score)[:5]:
             vid = secrets.token_urlsafe(8)
             versions[vid] = (user["id"], time.time(), r)
-            items.append({"vid": vid, "title": r.title, "artist": r.artist, "duration": r.duration,
-                          "cover": r.thumb_url, "icon": search.ICONS.get(r.source, "🎵")})
+            items.append(
+                {
+                    "vid": vid,
+                    "title": r.title,
+                    "artist": r.artist,
+                    "duration": r.duration,
+                    "cover": r.thumb_url,
+                    "icon": search.ICONS.get(r.source, "🎵"),
+                }
+            )
         return web.json_response({"items": items})
 
     async def fetch(request: web.Request):
@@ -395,14 +438,21 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             if bot is None:
                 raise web.HTTPServiceUnavailable(text="no bot")
             thumb = FSInputFile(d.thumb) if d.thumb else None
-            sent = await bot.send_audio(user["id"], FSInputFile(d.path), title=d.title, performer=d.artist,
-                                        duration=d.duration, thumbnail=thumb)
+            sent = await bot.send_audio(
+                user["id"], FSInputFile(d.path), title=d.title, performer=d.artist, duration=d.duration, thumbnail=thumb
+            )
             await db.set_cached(f"audio:{r.url}", sent.audio.file_id, d.title, d.artist, d.duration)
             return web.json_response({"ok": True})
-        return web.json_response({
-            "url": f"/api/file/{tok}", "title": d.title, "artist": d.artist, "duration": d.duration,
-            "ext": d.path.suffix.lstrip("."), "size": d.path.stat().st_size,
-        })
+        return web.json_response(
+            {
+                "url": f"/api/file/{tok}",
+                "title": d.title,
+                "artist": d.artist,
+                "duration": d.duration,
+                "ext": d.path.suffix.lstrip("."),
+                "size": d.path.stat().st_size,
+            }
+        )
 
     async def serve_file(request: web.Request):
         # ссылка с секретным токеном: <audio> и загрузчик Telegram не умеют слать заголовки
@@ -412,32 +462,39 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         d = item[3]
         name = urllib.parse.quote(f"{d.artist} - {d.title}{d.path.suffix}".strip(" -"))
         ctype = "audio/mpeg" if d.path.suffix == ".mp3" else "audio/mp4"
-        return web.FileResponse(d.path, headers={
-            "Content-Type": ctype, "Cache-Control": "no-store",
-            "Content-Disposition": f"inline; filename*=UTF-8''{name}"})
+        return web.FileResponse(
+            d.path,
+            headers={
+                "Content-Type": ctype,
+                "Cache-Control": "no-store",
+                "Content-Disposition": f"inline; filename*=UTF-8''{name}",
+            },
+        )
 
     app = web.Application(client_max_size=AVATAR_MAX + 1024)
     app.router.add_static("/static/", INDEX.parent, show_index=False)  # картинки для страницы
-    app.add_routes([
-        web.get("/", index),
-        web.get("/admin", admin_page),
-        web.get("/api/admin", admin_overview),
-        web.get("/api/admin/user", admin_user),
-        web.get("/healthz", health),
-        web.get("/api/dashboard", dashboard),
-        web.post("/api/profile", set_profile),
-        web.post("/api/avatar", upload_avatar),
-        web.post("/api/background", upload_background),
-        web.get("/avatar/{tok}", serve_avatar),
-        web.post("/api/favorites", favorites),
-        web.post("/api/favplay", fav_play),
-        web.get("/fav/{tok}", serve_fav),
-        web.post("/api/handoff", handoff),
-        web.get("/api/recs", recs),
-        web.post("/api/resolve", resolve),
-        web.post("/api/fetch", fetch),
-        web.get("/api/file/{tok}", serve_file),
-    ])
+    app.add_routes(
+        [
+            web.get("/", index),
+            web.get("/admin", admin_page),
+            web.get("/api/admin", admin_overview),
+            web.get("/api/admin/user", admin_user),
+            web.get("/healthz", health),
+            web.get("/api/dashboard", dashboard),
+            web.post("/api/profile", set_profile),
+            web.post("/api/avatar", upload_avatar),
+            web.post("/api/background", upload_background),
+            web.get("/avatar/{tok}", serve_avatar),
+            web.post("/api/favorites", favorites),
+            web.post("/api/favplay", fav_play),
+            web.get("/fav/{tok}", serve_fav),
+            web.post("/api/handoff", handoff),
+            web.get("/api/recs", recs),
+            web.post("/api/resolve", resolve),
+            web.post("/api/fetch", fetch),
+            web.get("/api/file/{tok}", serve_file),
+        ]
+    )
     return app
 
 

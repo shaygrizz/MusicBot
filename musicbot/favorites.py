@@ -1,14 +1,12 @@
 """Отправка избранного в чат Telegram. Общий код для бота и мини-аппа."""
+
 import asyncio
 import logging
 
 from aiogram import Bot
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
-import db
-import favcache
-import search
-import texts
+from . import db, favcache, search, texts
 
 
 def fav_keyboard(play_id: int, is_fav: bool) -> InlineKeyboardMarkup:
@@ -48,14 +46,27 @@ async def deliver_favorite(bot: Bot, chat_id: int, user_id: int, prep: dict) -> 
         if cached:
             file_id, title, artist, duration = cached
             play_id = await db.log_play(user_id, title, artist, duration, "cache", prep["lazy"], "audio", prep["cover"])
-            await bot.send_audio(chat_id, file_id, title=title, performer=artist, duration=duration,
-                                 reply_markup=fav_keyboard(play_id, True))
+            await bot.send_audio(
+                chat_id,
+                file_id,
+                title=title,
+                performer=artist,
+                duration=duration,
+                reply_markup=fav_keyboard(play_id, True),
+            )
         else:
-            play_id = await db.log_play(user_id, d.title, d.artist, d.duration, d.source, prep["lazy"], "audio",
-                                        prep["cover"])
-            sent = await bot.send_audio(chat_id, FSInputFile(d.path), title=d.title, performer=d.artist,
-                                        duration=d.duration, thumbnail=FSInputFile(d.thumb) if d.thumb else None,
-                                        reply_markup=fav_keyboard(play_id, True))
+            play_id = await db.log_play(
+                user_id, d.title, d.artist, d.duration, d.source, prep["lazy"], "audio", prep["cover"]
+            )
+            sent = await bot.send_audio(
+                chat_id,
+                FSInputFile(d.path),
+                title=d.title,
+                performer=d.artist,
+                duration=d.duration,
+                thumbnail=FSInputFile(d.thumb) if d.thumb else None,
+                reply_markup=fav_keyboard(play_id, True),
+            )
             await db.set_cached(f"audio:{prep['lazy']}", sent.audio.file_id, d.title, d.artist, d.duration)
     finally:
         if d:
@@ -67,7 +78,7 @@ async def play_favorites(bot: Bot, chat_id: int, user_id: int, batch: list[dict]
     выше), поэтому отправляем в обратном порядке: первая песня списка оказывается внизу и играет первой.
     Пока уходит текущая, следующая уже готовится. Возвращает, сколько песен не удалось загрузить."""
     batch = list(reversed(batch))
-    status =await bot.send_message(chat_id, texts.say("fav_progress", i=1, n=len(batch))) if progress else None
+    status = await bot.send_message(chat_id, texts.say("fav_progress", i=1, n=len(batch))) if progress else None
     failed = 0
     nxt = asyncio.create_task(prepare_favorite(user_id, batch[0]))
     try:
