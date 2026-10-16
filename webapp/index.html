@@ -132,7 +132,7 @@
   .ver.sel .vt { color: var(--text); }
   .ver .vs { display: block; color: var(--text2); font-size: var(--t-meta); font-weight: 400; }
   .ver .vd { color: var(--text2); font-size: var(--t-meta); white-space: nowrap; }
-  .mini { display: grid; grid-template-columns: 44px 1fr 48px; gap: var(--s3); align-items: center; margin: var(--s3) 0; padding: var(--s3) 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .mini { display: grid; grid-template-columns: 44px 1fr 48px 48px; gap: var(--s3); align-items: center; margin: var(--s3) 0; padding: var(--s3) 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
   .mini .disc svg { width: 44px; height: 44px; }
   .mini .seek { margin-top: 0; }
   .mini .ico.main { width: 48px; height: 48px; }
@@ -181,12 +181,17 @@
   .seekin { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
   .seek:focus-within { outline: 2px solid var(--gold); outline-offset: 2px; }
   .times { display: flex; justify-content: space-between; color: var(--text2); font-size: var(--t-meta); }
-  .ctrl { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; justify-items: center; margin-top: var(--s2); }
+  .ctrl { display: grid; grid-template-columns: 1fr auto auto auto 1fr; align-items: center; justify-items: center; margin-top: var(--s2); }
+  .ctrl .tog { justify-self: end; }
   .ico { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; background: none; color: var(--text); cursor: pointer; }
   .ico svg { width: 24px; height: 24px; fill: currentColor; }
   .ico.main { width: 60px; height: 60px; border-radius: 50%; background: var(--rose); color: var(--on-rose); }
   .ico.main svg { width: 28px; height: 28px; }
   .ico.quiet { color: var(--text2); }
+  .ico.tog { position: relative; color: var(--text2); }
+  .ico.tog svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .ico.tog[aria-pressed="true"] { color: var(--rose); }
+  .ico.tog[aria-pressed="true"]::after { content: ""; position: absolute; left: 50%; bottom: 6px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
   .nowmsg { min-height: 20px; margin-top: var(--s2); color: var(--text2); font-size: var(--t-meta); text-align: center; }
   .nowbar .textbtn { margin-top: var(--s2); padding-block: var(--s3); }
   body.withbar { padding-bottom: calc(300px + env(safe-area-inset-bottom)); }
@@ -391,11 +396,28 @@ const ICONS = {
   prev: "M6 6h2v12H6zM19 6v12L9.5 12z", next: "M16 6h2v12h-2zM5 6v12l9.5-6z",
   play: "M8 5v14l11-7z", pause: "M7 5h3.5v14H7zM13.5 5H17v14h-3.5z",
 };
+// repeat: two arrows round a "1" (this one track again); drawn as outline, the other icons are filled
+const REPEAT = ["M4 11V9.5A2.5 2.5 0 0 1 6.5 7H18", "M15.5 4.5L18 7l-2.5 2.5", "M20 13v1.5a2.5 2.5 0 0 1-2.5 2.5H6", "M8.5 14.5L6 17l2.5 2.5", "M11 10.8l1.4-.9v4.3"];
 function icon(name) {
   const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
+  if (name === "repeat") { for (const d of REPEAT) s.append(svg("path", { d })); return s; }
   const p = svg("path", { d: name === "close" ? "M6 6l12 12M18 6L6 18" : ICONS[name] });
   if (name === "close") { p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "2"); }
   s.append(p); return s;
+}
+// one switch for both players: the track that is playing starts again when it ends
+const repeat = { on: false, buttons: new Set() };
+try { repeat.on = localStorage.getItem("repeatOne") === "1"; } catch (e) {}
+function repeatButton() {
+  const b = iconButton("repeat", "Repeat this track", "tog");
+  const show = () => { b.setAttribute("aria-pressed", repeat.on ? "true" : "false"); };
+  b.onclick = () => {
+    repeat.on = !repeat.on;
+    try { localStorage.setItem("repeatOne", repeat.on ? "1" : "0"); } catch (e) {}
+    for (const x of repeat.buttons) { if (x.isConnected) x.sync(); else repeat.buttons.delete(x); }  // players that were closed drop out
+  };
+  b.sync = show; show(); repeat.buttons.add(b);
+  return b;
 }
 function iconButton(name, label, cls) {
   const b = $("button", "ico" + (cls ? " " + cls : ""));
@@ -418,11 +440,12 @@ function ensurePlayerBar() {
   const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
   const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
   const ctrl = $("div", "ctrl"), prev = iconButton("prev", "Previous track"), main = iconButton("play", "Play", "main"), next = iconButton("next", "Next track");
+  const loop = repeatButton(), gap = $("span");
   const msg = $("div", "nowmsg"), hand = $("button", "textbtn", "Continue in chat");
   range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
   msg.setAttribute("role", "status");
   disc.append(discSvg()); info.append(title, sub); top.append(disc, info, close);
-  seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(prev, main, next);
+  seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(gap, prev, main, next, loop);
   bar.append(top, seek, times, ctrl, msg, hand);
   document.body.append(bar); document.body.classList.add("withbar");
   Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand } });
@@ -441,7 +464,11 @@ function ensurePlayerBar() {
   };
   au.addEventListener("timeupdate", shown); au.addEventListener("durationchange", shown);
   au.addEventListener("play", () => state_(true)); au.addEventListener("pause", () => state_(false));
-  au.addEventListener("ended", () => { if (!au.src.startsWith("data:")) playAt(player.i + 1); });  // the silent unlock clip must not skip a track
+  au.addEventListener("ended", () => {
+    if (au.src.startsWith("data:")) return;  // the silent unlock clip must not skip a track
+    if (repeat.on) { au.currentTime = 0; au.play().catch(() => {}); return; }
+    playAt(player.i + 1);
+  });
   main.onclick = () => { if (au.src && !au.src.startsWith("data:")) au.paused ? au.play().catch(() => {}) : au.pause(); };
   range.oninput = () => { if (au.duration) au.currentTime = au.duration * range.value / 1000; };
   prev.onclick = () => { if (au.currentTime > 3 || player.i === 0) au.currentTime = 0; else playAt(player.i - 1); };
@@ -595,12 +622,12 @@ if (tg && tg.BackButton) tg.BackButton.onClick(() => closeSheet());
 // compact player for a track opened from the lists: same look as the bottom player, no browser controls
 function miniPlayer(src) {
   const au = new Audio(); au.preload = "auto"; au.src = src;
-  const box = $("div", "mini"), disc = $("div", "disc"), mid = $("div"), main = iconButton("play", "Play", "main");
+  const box = $("div", "mini"), disc = $("div", "disc"), mid = $("div"), main = iconButton("play", "Play", "main"), loop = repeatButton();
   const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
   const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
   range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
   disc.append(discSvg()); seek.append(fill, dot, range); times.append(cur, dur); mid.append(seek, times);
-  box.append(disc, mid, main);
+  box.append(disc, mid, loop, main);
   const shown = () => {
     const p = au.duration ? au.currentTime / au.duration : 0;
     fill.style.width = dot.style.left = `${p * 100}%`;
@@ -609,7 +636,7 @@ function miniPlayer(src) {
   const on = v => { box.classList.toggle("playing", v); main.replaceChildren(icon(v ? "pause" : "play")); main.setAttribute("aria-label", v ? "Pause" : "Play"); };
   au.addEventListener("timeupdate", shown); au.addEventListener("durationchange", shown);
   au.addEventListener("play", () => { on(true); if (player.au && player.au !== au) player.au.pause(); });  // one sound at a time
-  au.addEventListener("pause", () => on(false)); au.addEventListener("ended", () => { au.currentTime = 0; on(false); });
+  au.addEventListener("pause", () => on(false)); au.addEventListener("ended", () => { au.currentTime = 0; if (repeat.on) au.play().catch(() => {}); else on(false); });
   main.onclick = () => au.paused ? au.play().catch(() => {}) : au.pause();
   range.oninput = () => { if (au.duration) au.currentTime = au.duration * range.value / 1000; };
   return { box, au };
