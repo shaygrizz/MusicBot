@@ -19,6 +19,23 @@ def norm(s: str) -> str:
     return re.sub(r"[\W_]+", "", s)
 
 
+# хвосты каталогов, которые запись не меняют: «Draw You Out - From The Hunger Games: …», «Song - Remastered 2011»,
+# «Song - Radio Edit», «Stateside + Zara Larsson». На YouTube такая песня называется короче, и без обрезки
+# точное совпадение не находится. «- Acoustic Version», «- Live» и т.п. не трогаем: это другие записи
+_CATALOG_SUFFIX_RE = re.compile(
+    r"\s+[-–—]\s+(?:from\b|(?:\d{4}\s+)?remaster|radio\s+edit|single\s+version|album\s+version|original\s+version|"
+    r"mono\b|stereo\b|bonus\s+track|edit\b).*$",
+    re.I,
+)
+_CATALOG_PLUS_RE = re.compile(r"\s+\+\s+\S.*$")
+
+
+def core_title(title: str) -> str:
+    """Название песни без пометок каталога после тире или «+»; если отрезать нечего — как было."""
+    cut = _CATALOG_PLUS_RE.sub("", _CATALOG_SUFFIX_RE.sub("", title)).strip()
+    return cut or title
+
+
 # версии, которые не оригинал: ремиксы, live, каверы, замедленные и т.п.
 BAD_VERSION_RE = re.compile(
     r"\b(skip\w*|slowed|sped\s*up|speed\s*up|nightcore|reverb|8d|bass\s*boost(?:ed)?|karaoke|"

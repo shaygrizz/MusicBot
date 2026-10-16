@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+from dataclasses import replace
 
 from .. import audiocache
 from ..download import (
@@ -13,7 +14,7 @@ from ..download import (
     probe_duration,
 )
 from ..paths import DOWNLOAD_DIR
-from ..textutil import BAD_VERSION_RE, norm
+from ..textutil import BAD_VERSION_RE, core_title, norm
 from .engine import search
 from .models import is_lazy
 
@@ -21,11 +22,12 @@ from .models import is_lazy
 async def resolve(meta: SearchResult, exclude: set[str] | None = None, limit: int = 4) -> list[SearchResult]:
     """Скачиваемые версии нужного трека (точное название, близкая длительность), лучшие первыми."""
     exclude = exclude or set()
-    query = f"{meta.artist} {meta.title}".strip()
+    title = core_title(meta.title)  # «Draw You Out - From The Hunger Games…» ищем и сравниваем как «Draw You Out»
+    query = f"{meta.artist} {title}".strip()
     out = await search(query, 10, fast_only=True)  # быстро: YouTube Music + каталог
     if not [r for r in out.results if r.url not in exclude and not is_lazy(r.url)]:
         out = await search(query, 10)  # быстрых источников не хватило — полный поиск
-    want = norm(meta.title)
+    want = norm(title)
     asked_bad = bool(BAD_VERSION_RE.search(meta.title))
     artist_tokens = [norm(t) for t in re.split(r"[\s,&]+", meta.artist) if len(norm(t)) >= 3]
 
@@ -118,8 +120,8 @@ async def _fetch_audio(url: str, meta: SearchResult | None) -> "Downloaded":
         candidates = await resolve(meta, tried, 3)
         if not candidates:
             break
-    try:  # запасные источники по названию
-        d = await download("title://", "audio", meta)
+    try:  # запасные источники ищут по названию: хвост каталога («- From …», «+ …») им только мешает
+        d = await download("title://", "audio", replace(meta, title=core_title(meta.title)))
         if await _wrong_length(d, meta):
             d.cleanup()
             raise RuntimeError("длительность файла не совпадает с песней")

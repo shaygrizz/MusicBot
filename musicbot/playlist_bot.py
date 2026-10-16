@@ -19,6 +19,7 @@ router = Router()
 
 BATCH = int(os.getenv("PLAYLIST_BATCH", "10"))  # столько песен за одно нажатие, как «Play all» в избранном
 SHOWN = 10  # столько названий показываем в сообщении
+MISSED_SHOWN = 15  # столько ненайденных песен перечисляем в итоге
 READ_TIMEOUT = 45
 STORE_TTL = 3600
 INBOX_QUIET = 2.0  # пересланные песни приходят по одной: ждём паузу и показываем одно общее сообщение
@@ -152,8 +153,16 @@ async def _send_job(bot: Bot, chat_id: int, uid: int, tok: str, pl: playlists.Pl
                 queued = None
             if job["stop"]:
                 return
+            missed: list[dict] = []
             failed = await favorites.send_tracks(
-                bot, chat_id, uid, batch, favorites.prepare_track, stopped=lambda: job["stop"], status_markup=stop_kb
+                bot,
+                chat_id,
+                uid,
+                batch,
+                favorites.prepare_track,
+                stopped=lambda: job["stop"],
+                status_markup=stop_kb,
+                failures=missed,
             )
         nxt = offset + BATCH
         rows = []
@@ -163,9 +172,19 @@ async def _send_job(bot: Bot, chat_id: int, uid: int, tok: str, pl: playlists.Pl
         text = texts.say("pl_stopped") if job["stop"] else texts.say("pl_done", sent=len(batch) - failed, n=len(batch))
         if failed and not job["stop"]:
             text += "\n" + texts.say("pl_failed", n=failed)
+            # какие именно: их можно найти вручную или переслать из другого бота
+            names = [f"• {html.escape(m['artist'])} - {html.escape(m['title'])}" for m in missed[:MISSED_SHOWN]]
+            if len(missed) > MISSED_SHOWN:
+                names.append(texts.say("pl_rest", n=len(missed) - MISSED_SHOWN))
+            text += "\n" + "\n".join(names)
         if nxt < len(pl.tracks) and not job["stop"]:
             text += "\n" + texts.say("pl_left", n=len(pl.tracks) - nxt)
-        await bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None)
+        await bot.send_message(
+            chat_id,
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None,
+        )
     except Exception:
         logging.exception("плейлист не отправлен")
         await bot.send_message(chat_id, texts.say("pl_send_fail"))

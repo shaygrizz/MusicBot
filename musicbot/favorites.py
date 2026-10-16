@@ -130,11 +130,13 @@ async def send_tracks(
     progress: bool = True,
     stopped: Callable[[], bool] = lambda: False,
     status_markup: InlineKeyboardMarkup | None = None,
+    failures: list[dict] | None = None,
 ) -> int:
     """Отправляет песни одну за другой. Telegram проигрывает аудио в чате снизу вверх (после песни идёт сообщение
     выше), поэтому отправляем в обратном порядке: первая песня списка оказывается внизу и играет первой.
     Пока уходит текущая, следующая уже готовится. stopped() проверяется между песнями;
-    status_markup — кнопки под сообщением о ходе отправки (например, «Стоп»).
+    status_markup — кнопки под сообщением о ходе отправки (например, «Стоп»);
+    в failures (если передан) складываются песни, которые не удалось отправить, в порядке списка.
     Возвращает, сколько песен не удалось отправить."""
     batch = list(reversed(batch))
     status = (
@@ -152,6 +154,8 @@ async def send_tracks(
                 logging.exception("песня не подготовлена")
                 prep = None
                 failed += 1
+                if failures is not None:
+                    failures.append(batch[i])
             nxt = None
             if stopped():  # нажали «Стоп»: готовую песню не отправляем, остальные не готовим
                 if prep and prep["d"]:
@@ -164,6 +168,8 @@ async def send_tracks(
                 except Exception:
                     logging.exception("песня не отправлена")
                     failed += 1
+                    if failures is not None:
+                        failures.append(batch[i])
             if nxt is not None and status is not None:
                 try:
                     await status.edit_text(texts.say("fav_progress", i=i + 2, n=len(batch)), reply_markup=status_markup)
@@ -177,6 +183,8 @@ async def send_tracks(
                 await status.delete()
             except Exception:
                 pass
+    if failures:
+        failures.reverse()  # отправляли с конца: возвращаем порядок списка
     return failed
 
 

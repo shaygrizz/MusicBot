@@ -316,3 +316,56 @@ async def test_messages_are_routed_to_the_playlist_handlers_only_when_they_shoul
     assert await playlist_bot.named_forward(audio_msg(True, "Song")) == {"name": ("A", "Song")}
     assert await playlist_bot.named_forward(audio_msg(False, "Song")) is False  # своё аудио — распознавание
     assert await playlist_bot.named_forward(audio_msg(True, None)) is False  # без названия — распознавание
+
+
+@pytest.mark.parametrize(
+    ("title", "core"),
+    [
+        ("Draw You Out - From The Hunger Games: Sunrise on the Reaping - The Album", "Draw You Out"),
+        ("Here Comes The Sun - Remastered 2009", "Here Comes The Sun"),
+        ("Bohemian Rhapsody - 2011 Remaster", "Bohemian Rhapsody"),
+        ("Blinding Lights - Radio Edit", "Blinding Lights"),
+        ("Stateside + Zara Larsson", "Stateside"),
+        ("Rein Me In (with Olivia Dean)", "Rein Me In (with Olivia Dean)"),  # скобки сравнение и так пропускает
+        ("Hello - Acoustic Version", "Hello - Acoustic Version"),  # другая запись: не трогаем
+        ("Love Story (Taylor's Version)", "Love Story (Taylor's Version)"),
+        ("Anti-Hero", "Anti-Hero"),
+        ("- From", "- From"),  # отрезать нечего — оставляем как было
+    ],
+)
+def test_catalog_tails_are_cut_from_song_names(title, core):
+    from musicbot.textutil import core_title
+
+    assert core_title(title) == core
+
+
+async def test_spotify_name_with_a_tail_finds_the_short_youtube_version(monkeypatch, result):
+    from musicbot.search import fetch
+    from musicbot.search.models import Outcome
+
+    asked = []
+
+    async def fake_search(query, limit=8, deep=False, fast_only=False):
+        asked.append(query)
+        return Outcome([result("Draw You Out", "Noah Kahan", 255, url="https://www.youtube.com/watch?v=abc")])
+
+    monkeypatch.setattr(fetch, "search", fake_search)
+    meta = result("Draw You Out - From The Hunger Games: Sunrise on the Reaping - The Album", "Noah Kahan", 255)
+    found = await fetch.resolve(meta)
+    assert [r.url for r in found] == ["https://www.youtube.com/watch?v=abc"]
+    assert asked[0] == "Noah Kahan Draw You Out"  # и ищем по короткому названию
+
+
+async def test_songs_that_failed_are_named_in_playlist_order(no_db):
+    bot = FakeBot()
+
+    async def prepare(uid, item):
+        if item["title"] in ("B", "D"):
+            raise RuntimeError("not found")
+        return cached_prep(item["title"])
+
+    missed = []
+    failed = await favorites.send_tracks(
+        bot, 1, 1, [{"title": t} for t in "ABCD"], prepare, progress=False, failures=missed
+    )
+    assert failed == 2 and [m["title"] for m in missed] == ["B", "D"]
