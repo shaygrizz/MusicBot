@@ -14,7 +14,7 @@ from ..download import (
     probe_duration,
 )
 from ..paths import DOWNLOAD_DIR
-from ..textutil import BAD_VERSION_RE, core_title, norm, same_artist
+from ..textutil import BAD_VERSION_RE, core_title, is_mix_cut, norm, same_artist
 from .engine import search
 from .models import is_lazy
 
@@ -79,6 +79,10 @@ async def _fetch_audio(url: str, meta: SearchResult | None) -> "Downloaded":
     и только потом запасные источники (SoundCloud, dydki). Ссылка без метаданных качается как есть."""
     if meta is None or not meta.title:
         return await download(url, "audio", meta)
+    if is_mix_cut(meta.title):
+        # «Monument [True Electric] - Mixed»: в каталоге длина куска из микса, на YouTube та же запись целиком.
+        # Длину не сравниваем, совпасть по-прежнему должны название и исполнитель
+        meta = replace(meta, duration=0)
 
     tried: set[str] = set()
     last: Exception | None = None

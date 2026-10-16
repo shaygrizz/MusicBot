@@ -405,3 +405,42 @@ async def test_latin_artist_from_spotify_finds_the_cyrillic_youtube_upload(monke
     monkeypatch.setattr(fetch, "search", fake_search)
     found = await fetch.resolve(result("Группа крови", "Kino", 284))
     assert [r.url for r in found] == ["https://www.youtube.com/watch?v=kino"]
+
+
+def test_mix_cut_tail_is_cut_and_recognized():
+    from musicbot.textutil import core_title, is_mix_cut, norm
+
+    title = "Monument (feat. Robyn) [True Electric] - Mixed"
+    assert core_title(title) == "Monument (feat. Robyn) [True Electric]"
+    assert norm(core_title(title)) == norm("Monument [True Electric] (feat. Robyn)")  # как на YouTube Music
+    assert is_mix_cut(title) and is_mix_cut("Song - Mix Cut")
+    assert not is_mix_cut("Mixed Emotions") and not is_mix_cut("Song - Remix")
+
+
+async def test_mix_cut_from_spotify_is_found_even_if_its_length_differs(monkeypatch, result, tmp_path):
+    """Длина «- Mixed» в каталоге — длина куска в миксе: на YouTube та же запись длиннее."""
+    from musicbot.download import Downloaded
+    from musicbot.search import fetch
+    from musicbot.search.models import Outcome
+
+    async def fake_search(query, limit=8, deep=False, fast_only=False):
+        return Outcome(
+            [result("Monument [True Electric] (feat. Robyn)", "Röyksopp", 415, url="https://www.youtube.com/watch?v=m")]
+        )
+
+    asked = []
+
+    async def fake_download(url, kind, meta=None, fallbacks=True):
+        asked.append(url)
+        p = tmp_path / "m.m4a"
+        p.write_bytes(b"x")
+        return Downloaded(path=p, thumb=None, title="x", artist="y", duration=415, source="Youtube", workdir=tmp_path)
+
+    monkeypatch.setattr(fetch, "search", fake_search)
+    monkeypatch.setattr(fetch, "download", fake_download)
+    monkeypatch.setattr(fetch, "probe_duration", lambda path: 415)
+    monkeypatch.setattr(fetch, "DOWNLOAD_DIR", tmp_path / "dl")
+    meta = result("Monument (feat. Robyn) [True Electric] - Mixed", "Röyksopp, Robyn", 380, url="lazy://m")
+    d = await fetch.fetch_audio("lazy://m", meta)
+    assert asked == ["https://www.youtube.com/watch?v=m"]
+    assert d.title == "Monument (feat. Robyn) [True Electric] - Mixed"  # имя — как в плейлисте

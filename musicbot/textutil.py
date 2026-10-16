@@ -51,9 +51,18 @@ def same_artist(a: str, b: str) -> bool:
 # точное совпадение не находится. «- Acoustic Version», «- Live» и т.п. не трогаем: это другие записи
 _CATALOG_SUFFIX_RE = re.compile(
     r"\s+[-–—]\s+(?:from\b|(?:\d{4}\s+)?remaster|radio\s+edit|single\s+version|album\s+version|original\s+version|"
-    r"mono\b|stereo\b|bonus\s+track|edit\b).*$",
+    r"mono\b|stereo\b|bonus\s+track|edit\b|mixed\b|mix\s+cut\b).*$",
     re.I,
 )
+# «Song - Mixed», «Song - Mix Cut»: версия из альбома-микса, обрезанная под переходы между песнями
+_MIX_CUT_RE = re.compile(r"\s+[-–—]\s+(?:mixed\b|mix\s+cut\b)", re.I)
+
+
+def is_mix_cut(title: str) -> bool:
+    """Длина такой версии в каталоге — длина куска в миксе, а не песни: сравнивать её с YouTube нельзя."""
+    return bool(_MIX_CUT_RE.search(title))
+
+
 _CATALOG_PLUS_RE = re.compile(r"\s+\+\s+\S.*$")
 
 
