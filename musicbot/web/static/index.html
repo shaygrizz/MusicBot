@@ -230,41 +230,31 @@
   .tab[aria-current="page"] { color: var(--rose); }
   .pagetitle { margin: 0 0 var(--s4); }
 
-  /* главная: «My Wave» на весь экран, фон из цветных размытых пятен в цветах обложки */
-  .wavebg { display: none; position: fixed; inset: 0; margin-inline: auto; max-width: 560px; overflow: hidden; pointer-events: none; z-index: 0;
-    --c1: #E8C41C; --c2: #C0267A; --c3: #F08A1C; }
-  body.tab-wave .wavebg { display: block; }
-  body.tab-wave .backdrop { display: none; }
-  .wavebg i { position: absolute; border-radius: 50%; filter: blur(56px); transition: background 1.4s ease; }
-  .wavebg i:nth-child(1) { width: 78%; height: 46%; left: 11%; top: 4%; background: var(--c1); opacity: .95; }
-  .wavebg i:nth-child(2) { width: 52%; height: 34%; right: -12%; top: 22%; background: var(--c2); opacity: .85; }
-  .wavebg i:nth-child(3) { width: 56%; height: 30%; left: -14%; top: 48%; background: var(--c3); opacity: .7; }
-  .wavebg i:nth-child(4) { width: 34%; height: 18%; left: 8%; bottom: 14%; background: #fff; opacity: .18; }
-  @media (prefers-reduced-motion: no-preference) {
-    .wavebg i:nth-child(1) { animation: drift 16s ease-in-out infinite alternate; }
-    .wavebg i:nth-child(2) { animation: drift 20s ease-in-out -6s infinite alternate-reverse; }
-    .wavebg i:nth-child(3) { animation: drift 24s ease-in-out -12s infinite alternate; }
-    @keyframes drift { to { transform: translate(7%, 6%) scale(1.12); } }
-  }
+  /* главная: «My Wave» в стиле страницы: ваша картинка за стеклом, золотая рамка, грани; цвет обложки лишь слегка подсвечивает фон */
   .wavepage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s5); text-align: center; min-height: calc(100dvh - var(--tabbar) - 2 * var(--s5)); }
-  .wavetitle { margin: 0; font: 700 clamp(48px, 15vw, 72px)/1 var(--sans); letter-spacing: -.03em; color: #fff; text-shadow: 0 2px 24px rgba(0, 0, 0, .25); }
-  .wcover { width: 112px; height: 112px; border-radius: 12px; overflow: hidden; background: rgba(255, 255, 255, .12); box-shadow: 0 8px 28px rgba(0, 0, 0, .4); }
-  .wcover img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .wrow { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px 44px; gap: var(--s2); align-items: center; width: 100%; }
-  .wround { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: rgba(24, 24, 24, .72); color: #fff; cursor: pointer; }
-  .wround svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-  .wround.on { color: var(--wave); }
+  .wavetitle { margin: 0; font: 400 clamp(44px, 14vw, 64px)/1 var(--display); letter-spacing: .01em; }
+  .wgem { width: 168px; height: 168px; }
+  .wgem img { object-position: center; }
+  .wcard { width: 100%; }
+  .wrow { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: var(--s2); align-items: center; width: 100%; }
+  .wround { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; background: none; color: var(--text2); cursor: pointer; }
+  .wround svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .wround.on { color: var(--rose); }
   .wround.on svg path { fill: currentColor; }
-  .wpill { min-width: 0; height: 44px; padding: 0 var(--s4); border-radius: 22px; background: rgba(24, 24, 24, .72); color: rgba(255, 255, 255, .8); font-weight: 600; line-height: 44px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .wctrl { display: flex; align-items: center; gap: var(--s5); }
-  .wsk { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; }
-  .wsk svg { width: 28px; height: 28px; fill: currentColor; }
+  .wpill { min-width: 0; padding: 0 var(--s2); font: 400 var(--t-lead)/44px var(--display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wctrl { display: flex; align-items: center; justify-content: center; gap: var(--s5); margin-top: var(--s2); }
+  .wsk { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; background: none; color: var(--text); cursor: pointer; }
+  .wsk svg { width: 24px; height: 24px; fill: currentColor; }
   .wsk:disabled { opacity: .3; }
-  .wplay { display: grid; place-items: center; width: 76px; height: 76px; padding: 0; border: 0; border-radius: 50%; background: var(--wave); color: #000; cursor: pointer; }
-  .wplay svg { width: 34px; height: 34px; fill: currentColor; }
-  .wprog { width: 60%; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .2); overflow: hidden; }
-  .wprog div { height: 100%; width: 0; background: #fff; }
-  .wwhy { min-height: 44px; margin: 0; max-width: 28ch; color: #fff; font-weight: 500; text-shadow: 0 1px 12px rgba(0, 0, 0, .5); }
+  .wplay { display: grid; place-items: center; width: 64px; height: 64px; padding: 0; border: 0; border-radius: 50%; background: var(--rose); color: var(--on-rose); cursor: pointer; }
+  .wplay svg { width: 28px; height: 28px; fill: currentColor; }
+  .wprog { position: relative; height: 28px; margin-top: var(--s4); }
+  .wprog::before { content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 2px; background: var(--rule); }
+  .wfill { position: absolute; left: 0; top: 13px; height: 2px; width: 0; background: var(--rose); }
+  .wdot { position: absolute; top: 7px; left: 0; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--gold); pointer-events: none; }
+  .wrange { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .wprog:has(:focus-visible) { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .wwhy { min-height: 22px; margin: var(--s2) 0 0; color: var(--gold); font-size: var(--t-meta); }
   /* строки дашборда, которые можно нажать */
   .list li.pick { cursor: pointer; }
   .list li.pick:hover .nm, .list li.pick:focus-visible .nm,
@@ -678,7 +668,10 @@ function ensurePlayerBar() {
   const shown = () => {
     const p = au.duration ? au.currentTime / au.duration : 0;
     fill.style.width = dot.style.left = mline.style.width = `${p * 100}%`;
-    if (wv.fill) wv.fill.style.width = `${p * 100}%`;
+    if (wv.fill) {  // the seek line on the wave page
+      wv.fill.style.width = wv.dot.style.left = `${p * 100}%`;
+      wv.range.value = Math.round(p * 1000); wv.cur.textContent = tm(au.currentTime); wv.dur.textContent = au.duration ? tm(au.duration) : "";
+    }
     range.value = Math.round(p * 1000); cur.textContent = tm(au.currentTime); dur.textContent = au.duration ? tm(au.duration) : "";
     if ("mediaSession" in navigator && navigator.mediaSession.setPositionState && au.duration) {
       try { navigator.mediaSession.setPositionState({ duration: au.duration, position: au.currentTime, playbackRate: 1 }); } catch (e) {}
@@ -813,63 +806,20 @@ async function startWave() {
 }
 
 // the home page: the wave plays right here, so the bottom player is hidden while it is on screen
-const wv = { note: "", colorKey: null };
-const WAVE_COLORS = ["#E8C41C", "#C0267A", "#F08A1C"];
-// three bright colours from a cover, for the blurred background; null if the picture cannot be read
-function coverColors(url) {
-  return new Promise(done => {
-    if (!url || !url.startsWith("https://")) return done(null);
-    const img = new Image(); img.crossOrigin = "anonymous";
-    img.onerror = () => done(null);
-    img.onload = () => {
-      try {
-        const c = document.createElement("canvas"); c.width = c.height = 16;
-        const x = c.getContext("2d"); x.drawImage(img, 0, 0, 16, 16);
-        const px = x.getImageData(0, 0, 16, 16).data, bins = {};
-        for (let k = 0; k < px.length; k += 4) {
-          const r = px[k] / 255, g = px[k + 1] / 255, b = px[k + 2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
-          if (mx < .2 || d < .08) continue;  // dark and grey pixels do not give a colour
-          const h = (d === 0 ? 0 : mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
-          const w = (d / mx) * mx + .02, bin = bins[Math.floor(h / 45)] || (bins[Math.floor(h / 45)] = { w: 0, h: 0 });
-          bin.w += w; bin.h += h * w;
-        }
-        const top = Object.values(bins).sort((a, b) => b.w - a.w).slice(0, 3).map(b => b.h / b.w);
-        if (!top.length) return done(null);
-        while (top.length < 3) top.push((top[0] + (top.length === 1 ? 40 : -50) + 360) % 360);
-        done(top.map(h => `hsl(${Math.round(h)} 88% 52%)`));
-      } catch (e) { done(null); }  // a picture from another site may be unreadable
-    };
-    img.src = url;
-  });
-}
-function hashColors(s) {
-  let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return [h, h + 45, h - 55].map(x => `hsl(${(x + 360) % 360} 85% 52%)`);
-}
-function setWaveColors(it) {
-  const key = it ? it.cover || it.title : "";
-  if (key === wv.colorKey) return;
-  wv.colorKey = key;
-  const bg = document.querySelector(".wavebg");
-  const apply = cols => { if (bg && wv.colorKey === key) cols.forEach((c, i) => bg.style.setProperty(`--c${i + 1}`, c)); };
-  if (!it) { apply(WAVE_COLORS); return; }
-  coverColors(it.cover).then(cols => apply(cols || hashColors(it.artist + it.title)));
-}
-function waveBg() {
-  const bg = $("div", "wavebg");
-  bg.setAttribute("aria-hidden", "true");
-  for (let k = 0; k < 4; k++) bg.append($("i"));
-  return bg;
-}
+const wv = { note: "" };
 function wavePage() {
-  const page = $("section", "wavepage"), cover = $("div", "wcover"), img = $("img"), row = $("div", "wrow");
+  const page = $("section", "wavepage"), cover = $("div", "gem cut8 wgem"), inner = $("div", "cut8"), img = $("img"), row = $("div", "wrow"), card = $("div", "wcard");
   const dis = iconButton("dislike", "Not for me: skip and play less of this artist", "wround");
   const pill = $("div", "wpill"), like = iconButton("star", "Add to favorites", "wround");
-  const more = iconButton("more", "More: versions, save file, send to chat", "wround");
   const ctrl = $("div", "wctrl"), prev = iconButton("prev", "Previous track", "wsk"), play = $("button", "wplay");
-  const next = iconButton("next", "Next track", "wsk"), prog = $("div", "wprog"), fill = $("div"), why = $("p", "wwhy");
-  img.alt = ""; cover.append(img); prog.append(fill); row.append(dis, pill, like, more); ctrl.append(prev, play, next);
-  page.append($("h1", "wavetitle", "My Wave"), cover, row, ctrl, prog, why);
+  const next = iconButton("next", "Next track", "wsk"), prog = $("div", "wprog"), fill = $("div", "wfill"), dot = $("div", "wdot"), why = $("p", "wwhy");
+  const range = $("input", "wrange"), times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
+  range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
+  range.oninput = () => { const au = player.au; if (au && au.duration) au.currentTime = au.duration * range.value / 1000; };
+  times.append(cur, dur);
+  img.alt = ""; inner.append(img); cover.append(inner); prog.append(fill, dot, range); row.append(dis, pill, like); ctrl.append(prev, play, next);
+  card.append(row, ctrl, prog, times, why);
+  page.append($("h1", "wavetitle", "My Wave"), cover, card);
   why.setAttribute("role", "status");
   const live = () => !!player.wave && !!player.bar && !player.bar.hidden;
   play.onclick = () => { if (live()) player.els.main.onclick(); else startWave(); };
@@ -881,8 +831,7 @@ function wavePage() {
     if (live()) player.els.next.onclick();
   };
   like.onclick = toggleFav;
-  more.onclick = () => { const it = player.items[player.i]; if (live() && it) openTrack(it); };
-  Object.assign(wv, { page, img, pill, like, dis, more, prev, play, next, fill, why, cover });
+  Object.assign(wv, { page, img, pill, like, dis, prev, play, next, fill, dot, range, cur, dur, why, cover });
   return page;
 }
 function syncWave() {
@@ -890,13 +839,13 @@ function syncWave() {
   document.body.classList.toggle("wavehide", state.tab === "wave" && on);
   if (!wv.page || !wv.page.isConnected) return;
   const it = on ? player.items[player.i] : null, playing = on && !player.au.paused;
-  setWaveColors(it);
   wv.pill.textContent = it ? `${it.artist ? it.artist + " — " : ""}${it.title}` : wv.note ? "" : "Tap play to start";
-  wv.cover.style.visibility = it ? "" : "hidden";  // the place stays, so the page does not jump when the first song starts
-  if (it && it.cover && it.cover.startsWith("https://")) { if (wv.img.src !== it.cover) wv.img.src = it.cover; } else wv.img.removeAttribute("src");
+  // the song's cover; before the first song, and for songs without one, your own photo (like the profile)
+  const pic = it && it.cover && it.cover.startsWith("https://") ? it.cover : state.avatar || "/static/Diamond.jpg";
+  if (wv.img.getAttribute("src") !== pic) wv.img.src = pic;
   wv.play.replaceChildren(icon(playing ? "pause" : "play")); wv.play.setAttribute("aria-label", playing ? "Pause" : "Play My Wave");
   wv.play.disabled = waveStarting;
-  [wv.prev, wv.next, wv.dis, wv.more, wv.like].forEach(b => { b.disabled = !it; });
+  [wv.prev, wv.next, wv.dis, wv.like, wv.range].forEach(b => { b.disabled = !it; });
   const fav = !!it && isFav(it);
   wv.like.classList.toggle("on", fav); wv.like.setAttribute("aria-label", fav ? "Remove from favorites" : "Add to favorites");
   const msg = on ? player.els.msg.textContent : "";
@@ -1301,7 +1250,6 @@ function discoverPage(d) {
 function render() {
   const root = document.getElementById("app"), d = state.d, page = document.createDocumentFragment();
   if (!document.querySelector(".tabbar")) document.body.append(tabbar());
-  document.body.classList.toggle("tab-wave", state.tab === "wave");
   document.querySelectorAll(".tab").forEach(b => {
     if (b.dataset.tab === state.tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
@@ -1311,12 +1259,11 @@ function render() {
   else page.append(discoverPage(d));
   root.replaceChildren(page);
   if (state.tab !== "wave") wv.page = null;
-  wv.colorKey = null;  // the new page starts from the default colours; syncWave sets the song's own
   syncWave(); markNow();
 }
 
 async function main() {
-  document.body.prepend(waveBg()); document.body.prepend(backdrop());
+  document.body.prepend(backdrop());
   try { state.d = await api("/api/dashboard"); }
   catch (e) { document.getElementById("app").replaceChildren($("div", "err", "Open this page from the Telegram bot.")); return; }
   state.name = state.d.profile.name;
