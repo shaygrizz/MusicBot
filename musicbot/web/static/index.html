@@ -294,8 +294,8 @@ async function api(path) {
   if (!r.ok) throw new Error(r.status);
   return r.json();
 }
-async function post(path, body) {
-  const r = await fetch(path, { method: "POST", body: JSON.stringify(body),
+async function post(path, body, signal) {
+  const r = await fetch(path, { method: "POST", body: JSON.stringify(body), signal,
     headers: { "X-Init-Data": tg ? tg.initData : "", "Content-Type": "application/json" } });
   if (!r.ok) throw new Error(r.status);
   return r.json();
@@ -669,7 +669,7 @@ function ensurePlayerBar() {
   const shown = () => {
     const p = au.duration ? au.currentTime / au.duration : 0;
     fill.style.width = dot.style.left = mline.style.width = `${p * 100}%`;
-    if (wv.fill && !wv.drag) {  // the seek line on the wave page (while it is dragged, the finger decides)
+    if (wv.fill && !wv.drag && player.wave) {  // the seek line on the wave page (while it is dragged, the finger decides)
       wv.fill.style.width = wv.dot.style.left = `${p * 100}%`;
       wv.range.value = Math.round(p * 1000); wv.cur.textContent = tm(au.currentTime); wv.dur.textContent = au.duration ? tm(au.duration) : "";
     }
@@ -725,16 +725,24 @@ function setNow(it, text) {
 
 // favorites are kept on the server after the first download, so this answers at once on every later play;
 // other songs (Top tracks, Recent, an artist's songs) come by their saved YouTube link or are found by name
-function trackUrl(i) {
+// bg = a song fetched ahead of time: the server treats it as less urgent than the one the user just chose.
+// Every request of a queue shares one AbortController, so starting another queue drops what the old one was still waiting for.
+function trackUrl(i, bg = false) {
   const it = player.items[i];
   if (!it) return Promise.reject(new Error("end"));
   const body = { artist: it.artist, title: it.title, duration: it.duration || 0, cover: it.cover || "" };
-  if (!player.cache[i]) player.cache[i] = (it.kind === "fav" ? post("/api/favplay", body)
-    : post("/api/track", { ...body, url: it.url || "" })).then(r => r.url);
+  const signal = player.ctl && player.ctl.signal;
+  if (!player.cache[i]) player.cache[i] = (it.kind === "fav" ? post("/api/favplay", body, signal)
+    : post("/api/track", { ...body, url: it.url || "", prefetch: bg }, signal)).then(r => r.url);
   return player.cache[i];
 }
+// get song k ready; never rejects, and forgets a failed attempt only if the queue is still the same one
+function warm(k, bg = true) {
+  const c = player.cache;
+  return trackUrl(k, bg).catch(() => { if (player.cache === c) delete c[k]; });
+}
 
-async function playAt(i) {
+async function playAt(i, from = 0) {
   const my = ++player.token, it = player.items[i];
   if (!it) { stopPlayer(); return; }
   player.i = i;
@@ -744,15 +752,16 @@ async function playAt(i) {
     const url = await trackUrl(i);
     if (my !== player.token) return;
     player.au.src = url;
+    if (from > 1) player.au.addEventListener("loadedmetadata", () => { if (my === player.token) player.au.currentTime = from; }, { once: true });
     if (sheetAu) sheetAu.pause();
     let blocked = false;
     await player.au.play().catch(() => { blocked = true; });  // a page opened by the bot may need one tap before sound is allowed
     setNow(it, blocked ? "Tap play to start." : "");
     if (player.wave) { prefetchAhead(i); if (i >= player.items.length - WAVE_AHEAD - 1) extendWave(); }
-    else if (i + 1 < player.items.length) trackUrl(i + 1).catch(() => { delete player.cache[i + 1]; });  // get the next track ready while this one plays
+    else if (i + 1 < player.items.length) warm(i + 1, false);  // get the next track ready while this one plays
   } catch (e) {
-    delete player.cache[i];
     if (my !== player.token) return;
+    delete player.cache[i];
     setNow(it, "Could not load this track. Skipping…");
     setTimeout(() => { if (my === player.token) playAt(i + 1); }, 1500);
   }
@@ -784,8 +793,44 @@ async function fetchWave(w, n = 10) {
 }
 // the wave keeps the next five songs ready: the first one loads on its own, then the five after it are fetched at once
 const WAVE_AHEAD = 5;
+// at most three at a time: the browser keeps about six connections to the server, and a song the user picks must not queue behind them
+const PREFETCH_PARALLEL = 3;
 function prefetchAhead(from) {
-  for (let k = from + 1; k <= from + WAVE_AHEAD && k < player.items.length; k++) trackUrl(k).catch(() => { delete player.cache[k]; });
+  const w = player.wave;
+  if (!w) return;
+  w.want = [];
+  for (let k = from + 1; k <= from + WAVE_AHEAD && k < player.items.length; k++) if (!player.cache[k]) w.want.push(k);
+  pumpPrefetch(w);
+}
+function pumpPrefetch(w) {
+  while (player.wave === w && w.active < PREFETCH_PARALLEL && w.want.length) {
+    const k = w.want.shift();
+    if (player.cache[k]) continue;
+    w.active++;
+    warm(k).finally(() => { w.active--; pumpPrefetch(w); });
+  }
+}
+// the wave that was playing when another queue took over: the same song, at the same second, when the user comes back
+let waveSaved = null;
+function stashWave() {
+  const au = player.au, w = player.wave;
+  w.want = [];
+  waveSaved = { wave: w, items: player.items, base: player.base, i: player.i, pos: au.currentTime || 0, dur: au.duration || 0 };
+}
+async function resumeWave() {
+  const s = waveSaved;
+  if (!s) return startWave();
+  waveSaved = null;
+  if (player.ctl) player.ctl.abort();
+  player.ctl = new AbortController();
+  Object.assign(player, { items: s.items, base: s.base, cache: {}, wave: s.wave });
+  s.wave.busy = false;
+  if (sheetOpen) closeSheet();
+  ensurePlayerBar();
+  player.els.hand.textContent = "Save file or send to chat";
+  player.au.src = SILENT; player.au.play().catch(() => {});
+  if (tg && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+  await playAt(s.i, s.pos);
 }
 async function extendWave() {
   const w = player.wave;
@@ -801,7 +846,7 @@ let waveStarting = false;
 async function startWave() {
   if (waveStarting) return;
   waveStarting = true; wv.note = "Tuning your wave…"; syncWave();
-  const w = { seen: new Set(), skipped: new Set(), busy: false };
+  const w = { seen: new Set(), skipped: new Set(), busy: false, active: 0, want: [] };
   try {
     const first = await fetchWave(w, 4);  // a short first batch: the music starts sooner, the next one loads while it plays
     wv.note = "";
@@ -828,7 +873,7 @@ function wavePage() {
   page.append($("h1", "wavetitle", "My Wave"), cover, card);
   why.setAttribute("role", "status");
   const live = () => !!player.wave && !!player.bar && !player.bar.hidden;
-  play.onclick = () => { if (live()) player.els.main.onclick(); else startWave(); };
+  play.onclick = () => { if (live()) player.els.main.onclick(); else if (waveSaved) resumeWave(); else startWave(); };
   // seek: a tap anywhere on the line jumps there, and a finger or mouse can drag; the page does not scroll meanwhile
   const seekTo = e => {
     const au = player.au, box = prog.getBoundingClientRect();
@@ -855,18 +900,24 @@ function syncWave() {
   const on = !!player.wave && !!player.bar && !player.bar.hidden;
   document.body.classList.toggle("wavehide", state.tab === "wave" && on);
   if (!wv.page || !wv.page.isConnected) return;
-  const it = on ? player.items[player.i] : null, playing = on && !player.au.paused;
+  const sv = !on ? waveSaved : null;  // another queue has the player: show where the wave stopped
+  const it = on ? player.items[player.i] : sv ? sv.items[sv.i] : null, playing = on && !player.au.paused;
   wv.pill.textContent = it ? `${it.artist ? it.artist + " — " : ""}${it.title}` : wv.note ? "" : "Tap play to start";
   // the song's cover; before the first song, and for songs without one, your own photo (like the profile)
   const pic = it && it.cover && it.cover.startsWith("https://") ? it.cover : state.avatar || "/static/Diamond.jpg";
   if (wv.img.getAttribute("src") !== pic) wv.img.src = pic;
   wv.play.replaceChildren(icon(playing ? "pause" : "play")); wv.play.setAttribute("aria-label", playing ? "Pause" : "Play My Wave");
   wv.play.disabled = waveStarting;
-  [wv.prev, wv.next, wv.dis, wv.like, wv.range].forEach(b => { b.disabled = !it; });
+  [wv.prev, wv.next, wv.dis, wv.like, wv.range].forEach(b => { b.disabled = !on; });
+  if (!on) {
+    const at = sv && sv.dur ? sv.pos / sv.dur : 0;
+    wv.fill.style.width = wv.dot.style.left = `${at * 100}%`; wv.range.value = Math.round(at * 1000);
+    wv.cur.textContent = tm(sv ? sv.pos : 0); wv.dur.textContent = sv && sv.dur ? tm(sv.dur) : "";
+  }
   const fav = !!it && isFav(it);
   wv.like.classList.toggle("on", fav); wv.like.setAttribute("aria-label", fav ? "Remove from favorites" : "Add to favorites");
   const msg = on ? player.els.msg.textContent : "";
-  wv.why.textContent = wv.note || msg || (it && it.because && it.because !== it.artist ? `Because you like ${it.because}` : it ? "" : "Music by your taste, non-stop");
+  wv.why.textContent = wv.note || msg || (sv ? "Paused. Tap play to go on." : it && it.because && it.because !== it.artist ? `Because you like ${it.because}` : it ? "" : "Music by your taste, non-stop");
 }
 
 // bottom tabs: Wave (home), Favorites, Stats, Discover
@@ -902,6 +953,11 @@ function startQueue(list, shuffle, start = null, wave = null) {
   let items = list.slice(), first = at;
   if (shuffle && start === null) { items = shuffled(items); first = 0; }
   else if (shuffle) { items = [list[at], ...shuffled(list.filter((_, k) => k !== at))]; first = 0; }
+  // another queue over a playing wave: remember the song and the second, so My Wave can go on from there
+  if (player.wave && wave !== player.wave && player.bar && !player.bar.hidden) stashWave();
+  if (wave) waveSaved = null;
+  if (player.ctl) player.ctl.abort();
+  player.ctl = new AbortController();
   Object.assign(player, { items, base: list.slice(), cache: {}, wave });
   if (sheetOpen) closeSheet();  // a track sheet must not keep its own player going over the queue
   ensurePlayerBar();

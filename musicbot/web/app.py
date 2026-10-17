@@ -236,6 +236,7 @@ played: set[str] = set()  # токены, по которым прослушив
 proxied: set[str] = set()  # потоки, начатые через прокси YouTube
 inflight: dict[tuple[int, str], asyncio.Task] = {}
 _sem: asyncio.Semaphore | None = None
+_bg_sem: asyncio.Semaphore | None = None
 
 
 def _norm_full(s: str) -> str:
@@ -262,7 +263,7 @@ def _ready_file(uid: int, vid: str) -> tuple[str, Downloaded] | None:
     return None
 
 
-async def _get_file(uid: int, vid: str, r: SearchResult) -> tuple[str, Downloaded]:
+async def _get_file(uid: int, vid: str, r: SearchResult, background: bool = False) -> tuple[str, Downloaded]:
     """Скачивает версию (один раз на пользователя и версию), возвращает токен файла.
     Одновременные запросы (предзагрузка, «Play», «Save file») ждут одну и ту же загрузку."""
     ready = _ready_file(uid, vid)
@@ -270,10 +271,17 @@ async def _get_file(uid: int, vid: str, r: SearchResult) -> tuple[str, Downloade
         return ready
 
     async def job() -> tuple[str, Downloaded]:
-        global _sem
+        global _sem, _bg_sem
         _sem = _sem or asyncio.Semaphore(MAX_PARALLEL)
-        async with _sem:
-            d = await search.fetch_audio(r.url, r)
+        _bg_sem = _bg_sem or asyncio.Semaphore(MAX_PARALLEL - 1)
+        if (
+            background
+        ):  # заранее подгружаемые песни (волна) занимают не все места: выбранная пользователем не встаёт в их очередь
+            async with _bg_sem, _sem:
+                d = await search.fetch_audio(r.url, r)
+        else:
+            async with _sem:
+                d = await search.fetch_audio(r.url, r)
         tok = secrets.token_urlsafe(18)
         files[tok] = (uid, time.time(), vid, d)
         return tok, d
@@ -560,7 +568,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             thumb_url=cover if cover.startswith("https://") else "",
         )  # fmt: skip
         try:
-            tok, d = await _get_file(user["id"], "track:" + url, r)
+            tok, d = await _get_file(user["id"], "track:" + url, r, background=bool(body.get("prefetch")))
         except Exception as e:
             logging.warning("webapp: песня не скачалась %s - %s: %s", artist, title, str(e)[:150])
             raise web.HTTPBadGateway(text="download failed")
