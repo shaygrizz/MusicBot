@@ -206,6 +206,8 @@
   .nowtop { grid-template-columns: 52px 1fr auto; }
   .nowtools { display: flex; }
   .nowtools .ico { width: 44px; height: 44px; }
+  .ico.fav.on { color: var(--rose); }
+  .ico.fav.on svg path { fill: currentColor; }  /* в избранном — звезда закрашена */
   /* свёрнутый плеер: тонкая полоса с прогрессом, кнопкой и названием; нажатие на название раскрывает его */
   .nowmini { display: none; }
   .nowbar.min { padding: 0 var(--s3) env(safe-area-inset-bottom); clip-path: none; }
@@ -453,7 +455,17 @@ function renderFavs() {
   if (tools) tools.hidden = !state.favs.length;
   fillQuick(document.getElementById("quick"));
   markNow();
+  syncStar();
 }
+// the star in the player shows whether the song that is playing is in favorites
+function syncStar() {
+  const star = player.els && player.els.star, it = player.items[player.i];
+  if (!star) return;
+  const on = !!it && isFav(it);
+  star.classList.toggle("on", on); star.setAttribute("aria-pressed", on ? "true" : "false");
+  star.setAttribute("aria-label", on ? "Remove from favorites" : "Add to favorites");
+}
+
 // the song that is playing stands out in the list
 function markNow() {
   const it = player.bar && !player.bar.hidden ? player.items[player.i] : null;
@@ -490,7 +502,8 @@ const SHUFFLE = ["M4 7h3.5L16.5 17H20", "M4 17h3.5l2.6-2.9", "M13.9 9.9L16.5 7H2
 function icon(name) {
   const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
   if (name === "repeat" || name === "shuffle") { for (const d of name === "repeat" ? REPEAT : SHUFFLE) s.append(svg("path", { d })); return s; }
-  const LINES = { close: "M6 6l12 12M18 6L6 18", down: "M6 9l6 6 6-6", up: "M6 15l6-6 6 6" };  // drawn as strokes
+  const LINES = { close: "M6 6l12 12M18 6L6 18", down: "M6 9l6 6 6-6", up: "M6 15l6-6 6 6",  // drawn as strokes
+    star: "M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6L12 16.6l-5 2.6.9-5.6-4-3.9 5.6-.8z" };
   const p = svg("path", { d: LINES[name] || ICONS[name] });
   if (LINES[name]) {
     p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "2");
@@ -566,6 +579,7 @@ function ensurePlayerBar() {
   const bar = $("div", "nowbar"), top = $("div", "nowtop"), disc = $("div", "disc"), info = $("div", "nowinfo");
   const title = $("div", "nowt"), sub = $("div", "nows"), close = iconButton("close", "Close player", "quiet");
   const shrink = iconButton("down", "Minimize player", "quiet"), tools = $("div", "nowtools");
+  const star = iconButton("star", "Add to favorites", "quiet fav");  // the song that is playing, from any list
   // minimized: a thin strip with the song, play/pause and a way back to the full player
   const mini = $("div", "nowmini"), mline = $("div", "minline"), mplay = iconButton("play", "Play", "small");
   const mt = $("button", "mt"), grow = iconButton("up", "Expand player", "quiet small");
@@ -576,12 +590,24 @@ function ensurePlayerBar() {
   const msg = $("div", "nowmsg"), hand = $("button", "textbtn", "Continue in chat");
   range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
   msg.setAttribute("role", "status");
-  disc.append(discSvg()); info.append(title, sub); tools.append(shrink, close); top.append(disc, info, tools);
+  disc.append(discSvg()); info.append(title, sub); tools.append(star, shrink, close); top.append(disc, info, tools);
   seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(mixb, prev, main, next, loop);
   mt.setAttribute("aria-label", "Expand player"); mini.append(mline, mplay, mt, grow);
   bar.append(top, seek, times, ctrl, msg, hand, mini);
   document.body.append(bar); document.body.classList.add("withbar");
-  Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand, mt } });
+  Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand, mt, star } });
+  star.onclick = async () => {
+    const it = player.items[player.i];
+    if (!it) return;
+    star.disabled = true;
+    try {
+      const r = await post("/api/favorites", { op: isFav(it) ? "remove" : "add", artist: it.artist, title: it.title,
+        duration: it.duration || 0, cover: it.cover || "", vid: it.kind === "track" && it.url ? "track:" + it.url : "" });
+      state.favs = r.favorites; renderFavs();
+    } catch (e) { player.els.msg.textContent = "Could not update favorites."; }
+    star.disabled = false;
+    syncStar();
+  };
   const minimize = on => {
     bar.classList.toggle("min", on); document.body.classList.toggle("barmin", on);
     try { localStorage.setItem("playerMin", on ? "1" : "0"); } catch (e) {}
@@ -618,7 +644,11 @@ function ensurePlayerBar() {
   prev.onclick = () => { if (au.currentTime > 3 || player.i === 0) au.currentTime = 0; else playAt(player.i - 1); };
   next.onclick = () => playAt(player.i + 1);
   close.onclick = stopPlayer;
-  hand.onclick = handOff;
+  hand.onclick = () => {
+    const it = player.items[player.i];
+    if (!it) return;
+    if (it.kind === "fav") handOff(); else openTrack(it);
+  };
   if ("mediaSession" in navigator) {  // lock-screen and notification controls
     const set = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
     set("play", () => au.play()); set("pause", () => au.pause());
@@ -633,6 +663,7 @@ function setNow(it, text) {
   e.sub.textContent = it ? `${it.artist || ""}${player.items.length > 1 ? `, ${player.i + 1} of ${player.items.length}` : ""}` : "";
   e.msg.textContent = text || "";
   e.mt.textContent = it ? `${it.artist ? it.artist + " - " : ""}${it.title}` : "";
+  syncStar();
   if (it && "mediaSession" in navigator && window.MediaMetadata) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: it.title, artist: it.artist || "",
       album: it.kind === "fav" ? "My Favorites" : "MusicBot",
@@ -699,7 +730,8 @@ function startQueue(list, shuffle, start = null) {
   Object.assign(player, { items, base: list.slice(), cache: {} });
   if (sheetOpen) closeSheet();  // a track sheet must not keep its own player going over the queue
   ensurePlayerBar();
-  player.els.hand.hidden = list[0].kind !== "fav";  // the bot can send favorites to the chat, not other lists
+  // favorites can be handed to the chat as a queue; any other song opens its sheet (versions, save file, send to chat)
+  player.els.hand.textContent = list[0].kind === "fav" ? "Continue in chat" : "Save file or send to chat";
   player.au.src = SILENT; player.au.play().catch(() => {});  // the tap unlocks audio, so the next tracks can start by themselves
   // closing the page ends playback, so ask before it closes while music is on
   if (tg && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
@@ -920,13 +952,14 @@ async function openTrack(rec) {
   } catch (e) { setStatus("Could not load versions. Try again.", "bad"); }
 }
 
+// a recommendation plays at once in the bottom player, then the next ones (like favorites)
 function gifts(items) {
-  const strip = $("div", "gifts");
-  items.forEach(it => {
+  const strip = $("div", "gifts"), songs = asTracks(items);
+  items.forEach((it, i) => {
     const b = $("button", "gift");
     b.append(gem(it.cover), $("div", "t", it.title), $("div", "a", it.artist));
-    b.setAttribute("aria-label", `${it.title}, ${it.artist}`);
-    b.onclick = () => openTrack(it);
+    b.setAttribute("aria-label", `Play ${it.title}, ${it.artist}`);
+    b.onclick = () => startQueue(songs, mix.on, i);
     strip.append(b);
   });
   return strip;
