@@ -1,11 +1,11 @@
 """Мини-апп: песни из Top tracks, Recent и списка исполнителя включаются по нажатию."""
 
 from aiohttp.test_utils import TestClient, TestServer
+from test_auth import TOKEN, init_data  # pytest кладёт папку tests в путь поиска модулей
 
 from musicbot.download import Downloaded
 from musicbot.search.models import Outcome
 from musicbot.web import app as webapp
-from tests.test_auth import TOKEN, init_data
 
 
 async def client():
