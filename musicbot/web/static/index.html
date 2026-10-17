@@ -742,15 +742,17 @@ function warm(k, bg = true) {
   return trackUrl(k, bg).catch(() => { if (player.cache === c) delete c[k]; });
 }
 
-async function playAt(i, from = 0) {
+async function playAt(i, from = 0, ready = null) {
   const my = ++player.token, it = player.items[i];
   if (!it) { stopPlayer(); return; }
   player.i = i;
   setNow(it, "Loading…");
   markNow();
   try {
-    const url = await trackUrl(i);
+    const url = ready || await trackUrl(i);
     if (my !== player.token) return;
+    if (player.blobUrl && player.blobUrl !== ready) { URL.revokeObjectURL(player.blobUrl); player.blobUrl = null; }  // the previous song held in memory
+    if (ready) player.blobUrl = ready;
     player.au.src = url;
     if (from > 1) player.au.addEventListener("loadedmetadata", () => { if (my === player.token) player.au.currentTime = from; }, { once: true });
     if (sheetAu) sheetAu.pause();
@@ -815,12 +817,29 @@ let waveSaved = null;
 function stashWave() {
   const au = player.au, w = player.wave;
   w.want = [];
-  waveSaved = { wave: w, items: player.items, base: player.base, i: player.i, pos: au.currentTime || 0, dur: au.duration || 0 };
+  dropSaved();
+  waveSaved = { wave: w, items: player.items, base: player.base, i: player.i, pos: au.currentTime || 0, dur: au.duration || 0, blobUrl: null };
+  preloadSaved(waveSaved);
+}
+function dropSaved() {
+  if (waveSaved && waveSaved.blobUrl) URL.revokeObjectURL(waveSaved.blobUrl);
+  waveSaved = null;
+}
+// while another song plays, the saved wave song is fetched whole into memory; coming back, it starts at once from the same second
+async function preloadSaved(s) {
+  const it = s.items[s.i];
+  if (!it) return;
+  try {  // no abort signal: starting the other queue must not cancel this
+    const r = await post("/api/track", { artist: it.artist, title: it.title, duration: it.duration || 0, cover: it.cover || "", url: it.url || "" });
+    if (waveSaved !== s) return;
+    const blob = await (await fetch(r.url)).blob();
+    if (waveSaved === s) s.blobUrl = URL.createObjectURL(blob);
+  } catch (e) { /* not ready: coming back loads the song the usual way */ }
 }
 async function resumeWave() {
   const s = waveSaved;
   if (!s) return startWave();
-  waveSaved = null;
+  waveSaved = null;  // the copy in memory now belongs to the player (playAt releases it with the next song)
   if (player.ctl) player.ctl.abort();
   player.ctl = new AbortController();
   Object.assign(player, { items: s.items, base: s.base, cache: {}, wave: s.wave });
@@ -830,7 +849,7 @@ async function resumeWave() {
   player.els.hand.textContent = "Save file or send to chat";
   player.au.src = SILENT; player.au.play().catch(() => {});
   if (tg && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
-  await playAt(s.i, s.pos);
+  await playAt(s.i, s.pos, s.blobUrl);
 }
 async function extendWave() {
   const w = player.wave;
@@ -955,7 +974,7 @@ function startQueue(list, shuffle, start = null, wave = null) {
   else if (shuffle) { items = [list[at], ...shuffled(list.filter((_, k) => k !== at))]; first = 0; }
   // another queue over a playing wave: remember the song and the second, so My Wave can go on from there
   if (player.wave && wave !== player.wave && player.bar && !player.bar.hidden) stashWave();
-  if (wave) waveSaved = null;
+  if (wave) dropSaved();
   if (player.ctl) player.ctl.abort();
   player.ctl = new AbortController();
   Object.assign(player, { items, base: list.slice(), cache: {}, wave });
