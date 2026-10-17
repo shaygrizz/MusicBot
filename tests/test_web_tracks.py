@@ -1,5 +1,7 @@
 """Мини-апп: песни из Top tracks, Recent и списка исполнителя включаются по нажатию."""
 
+import urllib.parse
+
 from aiohttp.test_utils import TestClient, TestServer
 from test_auth import TOKEN, init_data  # pytest кладёт папку tests в путь поиска модулей
 
@@ -90,3 +92,52 @@ async def test_artist_songs_are_listed_to_pick_from(monkeypatch, result):
         assert [i["title"] for i in data["items"]] == ["Группа крови", "Кукушка"]
     finally:
         await c.close()
+
+
+async def test_wave_needs_signed_data_and_returns_a_batch(monkeypatch):
+    seen_args = {}
+
+    def fake_wave(taste, seen, skipped, n=10):
+        seen_args.update(seen=seen, skipped=skipped)
+        return [{"artist": "Кино", "title": "Кукушка", "duration": 400, "cover": "", "because": "Кино"}]
+
+    async def fake_taste(user_id, limit=20):
+        return [("Кино", 3)]
+
+    monkeypatch.setattr(webapp.db, "taste_artists", fake_taste)
+    monkeypatch.setattr(webapp, "_deezer_wave", fake_wave)
+    c = await client()
+    try:
+        assert (await c.post("/api/wave", json={})).status == 401
+        r = await c.post("/api/wave", json={"seen": ["a|b"], "skipped": ["ABBA"]}, headers={"X-Init-Data": init_data()})
+        assert r.status == 200
+        assert [i["title"] for i in (await r.json())["items"]] == ["Кукушка"]
+        assert seen_args["seen"] == {"a|b"} and seen_args["skipped"] == {
+            "abba"
+        }  # исполнители приводятся к нижнему регистру
+    finally:
+        await c.close()
+
+
+def test_wave_skips_played_songs_and_skipped_artists(monkeypatch):
+    tracks = {
+        "Muse": [{"artist": {"name": "Muse"}, "title": "Hysteria", "duration": 227, "album": {}}],
+        "Abba": [{"artist": {"name": "Abba"}, "title": "Waterloo", "duration": 170, "album": {}}],
+    }
+
+    def fake_json(url):
+        if "search/artist" in url:
+            name = urllib.parse.unquote(url.rsplit("q=", 1)[1])
+            return {"data": [{"id": name}]}
+        if url.endswith("/top?limit=25"):
+            return {"data": tracks[url.split("/artist/")[1].split("/")[0]]}
+        return {"data": []}
+
+    monkeypatch.setattr(webapp, "_get_json", fake_json)
+    monkeypatch.setattr(webapp, "_dz_artist", {})
+    monkeypatch.setattr(webapp, "_dz_related", {})
+    seen = {webapp.db.fav_key("Muse", "Hysteria")}
+    out = webapp._deezer_wave([("Muse", 5), ("Abba", 1)], seen, {"abba"})
+    assert out == []  # Muse уже играла, Abba пропущена
+    out = webapp._deezer_wave([("Muse", 5), ("Abba", 1)], set(), {"abba"})
+    assert {t["title"] for t in out} == {"Hysteria"}

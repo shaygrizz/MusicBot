@@ -376,6 +376,19 @@ async def top_artist_names(user_id: int, limit: int = 3) -> list[str]:
         return [r[0] for r in await cur.fetchall()]
 
 
+async def taste_artists(user_id: int, limit: int = 20) -> list[tuple[str, int]]:
+    """Исполнители пользователя с весом для «Моей волны»: прослушивание весит 1, песня в избранном — 3."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT artist, SUM(w) FROM ("
+            " SELECT artist, 1 AS w FROM plays WHERE user_id=? AND artist != ''"
+            " UNION ALL SELECT artist, 3 AS w FROM favorites WHERE user_id=? AND artist != ''"
+            ") GROUP BY LOWER(artist) ORDER BY 2 DESC LIMIT ?",
+            (user_id, user_id, limit),
+        )
+        return [(a, int(w)) for a, w in await cur.fetchall()]
+
+
 async def user_stats(user_id: int) -> dict:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT COUNT(*), COALESCE(SUM(duration),0) FROM plays WHERE user_id=?", (user_id,))

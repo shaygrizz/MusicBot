@@ -27,11 +27,13 @@
     --t-meta: 13px; --t-body: 15px; --t-lead: 18px; --t-h2: 24px; --t-h1: 32px;
     --display: "Forum", "Georgia", serif;
     --sans: "Golos Text", system-ui, "Segoe UI", Roboto, sans-serif;
+    --tabbar: calc(56px + env(safe-area-inset-bottom));  /* высота нижней панели вкладок */
+    --wave: #FFEA00;  /* кнопка «Play» на главной, как у референса */
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html { background: var(--bg); }
   body {
-    margin: 0 auto; max-width: 560px; padding: var(--s5) var(--s4) calc(var(--s7) + env(safe-area-inset-bottom));
+    margin: 0 auto; max-width: 560px; padding: var(--s5) var(--s4) calc(var(--s7) + var(--tabbar));
     background: var(--bg); color: var(--text); font: 400 var(--t-body)/1.5 var(--sans);
   }
   :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
@@ -163,7 +165,7 @@
 
   /* плейлист любимого: быстрая кнопка и плеер внизу */
   .quick { margin-top: var(--s5); }
-  .nowbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; margin-inline: auto; max-width: 560px; padding: var(--s4) var(--s4) calc(var(--s3) + env(safe-area-inset-bottom)); background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-top: 2px solid var(--gold); clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }
+  .nowbar { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 9; margin-inline: auto; max-width: 560px; padding: var(--s4) var(--s4) var(--s3); background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-top: 2px solid var(--gold); clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }
   .nowbar[hidden] { display: none; }
   .nowtop { display: grid; grid-template-columns: 52px 1fr 44px; gap: var(--s3); align-items: center; }
   .disc svg { display: block; width: 52px; height: 52px; }
@@ -200,8 +202,10 @@
   .ico.tog[aria-pressed="true"]::after { content: ""; position: absolute; left: 50%; bottom: 6px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
   .nowmsg { min-height: 20px; margin-top: var(--s2); color: var(--text2); font-size: var(--t-meta); text-align: center; }
   .nowbar .textbtn { margin-top: var(--s2); padding-block: var(--s3); }
-  body.withbar { padding-bottom: calc(300px + env(safe-area-inset-bottom)); }
-  body.withbar.barmin { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  body.withbar { padding-bottom: calc(300px + var(--tabbar)); }
+  body.withbar.barmin { padding-bottom: calc(64px + var(--tabbar)); }
+  body.withbar.wavehide { padding-bottom: calc(var(--s7) + var(--tabbar)); }  /* на главной плеер внизу не нужен: волна играет на странице */
+  body.wavehide .nowbar { display: none; }
   /* верх плеера: «свернуть» и «закрыть» рядом */
   .nowtop { grid-template-columns: 52px 1fr auto; }
   .nowtools { display: flex; }
@@ -210,7 +214,7 @@
   .ico.fav.on svg path { fill: currentColor; }  /* в избранном — звезда закрашена */
   /* свёрнутый плеер: тонкая полоса с прогрессом, кнопкой и названием; нажатие на название раскрывает его */
   .nowmini { display: none; }
-  .nowbar.min { padding: 0 var(--s3) env(safe-area-inset-bottom); clip-path: none; }
+  .nowbar.min { padding: 0 var(--s3); clip-path: none; }
   .nowbar.min > :not(.nowmini) { display: none; }
   .nowbar.min .nowmini { position: relative; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; height: 48px; }
   .minline { position: absolute; left: 0; top: -2px; height: 2px; width: 0; background: var(--rose); }
@@ -218,6 +222,49 @@
   .ico.small svg { width: 22px; height: 22px; }
   .nowmini .mt { min-width: 0; overflow: hidden; padding: 0 var(--s2); border: 0; background: none; color: var(--text);
     font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  /* нижняя панель вкладок */
+  .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; margin-inline: auto; max-width: 560px; display: grid; grid-template-columns: repeat(4, 1fr);
+    padding-bottom: env(safe-area-inset-bottom); background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-top: 1px solid var(--rule); }
+  .tab { display: grid; align-content: center; justify-items: center; gap: 2px; height: 56px; padding: 0; border: 0; background: none; color: var(--text2); font-size: 11px; cursor: pointer; }
+  .tab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .tab[aria-current="page"] { color: var(--rose); }
+  .pagetitle { margin: 0 0 var(--s4); }
+
+  /* главная: «My Wave» на весь экран, фон из цветных размытых пятен в цветах обложки */
+  .wavebg { display: none; position: fixed; inset: 0; margin-inline: auto; max-width: 560px; overflow: hidden; pointer-events: none; z-index: 0;
+    --c1: #E8C41C; --c2: #C0267A; --c3: #F08A1C; }
+  body.tab-wave .wavebg { display: block; }
+  body.tab-wave .backdrop { display: none; }
+  .wavebg i { position: absolute; border-radius: 50%; filter: blur(56px); transition: background 1.4s ease; }
+  .wavebg i:nth-child(1) { width: 78%; height: 46%; left: 11%; top: 4%; background: var(--c1); opacity: .95; }
+  .wavebg i:nth-child(2) { width: 52%; height: 34%; right: -12%; top: 22%; background: var(--c2); opacity: .85; }
+  .wavebg i:nth-child(3) { width: 56%; height: 30%; left: -14%; top: 48%; background: var(--c3); opacity: .7; }
+  .wavebg i:nth-child(4) { width: 34%; height: 18%; left: 8%; bottom: 14%; background: #fff; opacity: .18; }
+  @media (prefers-reduced-motion: no-preference) {
+    .wavebg i:nth-child(1) { animation: drift 16s ease-in-out infinite alternate; }
+    .wavebg i:nth-child(2) { animation: drift 20s ease-in-out -6s infinite alternate-reverse; }
+    .wavebg i:nth-child(3) { animation: drift 24s ease-in-out -12s infinite alternate; }
+    @keyframes drift { to { transform: translate(7%, 6%) scale(1.12); } }
+  }
+  .wavepage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s5); text-align: center; min-height: calc(100dvh - var(--tabbar) - 2 * var(--s5)); }
+  .wavetitle { margin: 0; font: 700 clamp(48px, 15vw, 72px)/1 var(--sans); letter-spacing: -.03em; color: #fff; text-shadow: 0 2px 24px rgba(0, 0, 0, .25); }
+  .wcover { width: 112px; height: 112px; border-radius: 12px; overflow: hidden; background: rgba(255, 255, 255, .12); box-shadow: 0 8px 28px rgba(0, 0, 0, .4); }
+  .wcover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .wrow { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px 44px; gap: var(--s2); align-items: center; width: 100%; }
+  .wround { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: rgba(24, 24, 24, .72); color: #fff; cursor: pointer; }
+  .wround svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .wround.on { color: var(--wave); }
+  .wround.on svg path { fill: currentColor; }
+  .wpill { min-width: 0; height: 44px; padding: 0 var(--s4); border-radius: 22px; background: rgba(24, 24, 24, .72); color: rgba(255, 255, 255, .8); font-weight: 600; line-height: 44px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wctrl { display: flex; align-items: center; gap: var(--s5); }
+  .wsk { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; }
+  .wsk svg { width: 28px; height: 28px; fill: currentColor; }
+  .wsk:disabled { opacity: .3; }
+  .wplay { display: grid; place-items: center; width: 76px; height: 76px; padding: 0; border: 0; border-radius: 50%; background: var(--wave); color: #000; cursor: pointer; }
+  .wplay svg { width: 34px; height: 34px; fill: currentColor; }
+  .wprog { width: 60%; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .2); overflow: hidden; }
+  .wprog div { height: 100%; width: 0; background: #fff; }
+  .wwhy { min-height: 44px; margin: 0; max-width: 28ch; color: #fff; font-weight: 500; text-shadow: 0 1px 12px rgba(0, 0, 0, .5); }
   /* строки дашборда, которые можно нажать */
   .list li.pick { cursor: pointer; }
   .list li.pick:hover .nm, .list li.pick:focus-visible .nm,
@@ -391,7 +438,7 @@ function recent(items, onPick) {
 
 // songs from the dashboard lists play through the same bottom player as favorites
 const asTracks = list => list.map(x => ({ title: x.title, artist: x.artist || "", duration: x.duration || 0,
-  url: x.url || "", cover: x.cover || "", kind: "track" }));
+  url: x.url || "", cover: x.cover || "", kind: "track", because: x.because || "" }));
 
 // an artist from Top artists: show their songs and let the user pick one
 async function openArtist(name) {
@@ -457,8 +504,23 @@ function renderFavs() {
   markNow();
   syncStar();
 }
-// the star in the player shows whether the song that is playing is in favorites
+// add or remove the song that is playing; the player's heart and the heart on the wave page both call this
+async function toggleFav() {
+  const it = player.items[player.i];
+  if (!it) return;
+  const btns = [player.els.star, wv.like].filter(Boolean);
+  btns.forEach(b => { b.disabled = true; });
+  try {
+    const r = await post("/api/favorites", { op: isFav(it) ? "remove" : "add", artist: it.artist, title: it.title,
+      duration: it.duration || 0, cover: it.cover || "", vid: it.kind === "track" && it.url ? "track:" + it.url : "" });
+    state.favs = r.favorites; renderFavs();
+  } catch (e) { player.els.msg.textContent = "Could not update favorites."; }
+  btns.forEach(b => { b.disabled = false; });
+  syncStar();
+}
+// the heart in the player shows whether the song that is playing is in favorites
 function syncStar() {
+  syncWave();
   const star = player.els && player.els.star, it = player.items[player.i];
   if (!star) return;
   const on = !!it && isFav(it);
@@ -478,7 +540,7 @@ function markNow() {
 
 // favorites player: plays the whole list one track after another inside the page
 const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
-const player = { items: [], base: [], i: -1, token: 0, cache: {}, bar: null, au: null, els: {} };
+const player = { items: [], base: [], i: -1, token: 0, cache: {}, bar: null, au: null, els: {}, wave: null };
 
 function quickBox() { const box = $("div", "quick"); box.id = "quick"; fillQuick(box); return box; }
 function fillQuick(box) {
@@ -503,7 +565,12 @@ function icon(name) {
   const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
   if (name === "repeat" || name === "shuffle") { for (const d of name === "repeat" ? REPEAT : SHUFFLE) s.append(svg("path", { d })); return s; }
   const LINES = { close: "M6 6l12 12M18 6L6 18", down: "M6 9l6 6 6-6", up: "M6 15l6-6 6 6",  // drawn as strokes
-    star: "M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6L12 16.6l-5 2.6.9-5.6-4-3.9 5.6-.8z" };
+    star: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z",  // «в избранное» — сердце
+    dislike: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10zM4 4l16 16",
+    more: "M5 12h.01M12 12h.01M19 12h.01",
+    wave: "M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4",
+    stats: "M5 20V10M12 20V4M19 20v-7",
+    discover: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM15.5 8.5l-2 5-5 2 2-5z" };
   const p = svg("path", { d: LINES[name] || ICONS[name] });
   if (LINES[name]) {
     p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "2");
@@ -542,7 +609,7 @@ function shuffled(list) {
 }
 function remix() {
   const cur = player.bar && !player.bar.hidden ? player.items[player.i] : null;
-  if (!cur || !player.base.length) return;
+  if (!cur || !player.base.length || player.wave) return;  // the wave picks its own order
   // the queue came from a list (favorites, Top tracks, an artist's songs): reorder that list, keep the song playing
   if (mix.on) {
     player.items = [cur, ...shuffled(player.base.filter(x => x !== cur))];
@@ -595,19 +662,8 @@ function ensurePlayerBar() {
   mt.setAttribute("aria-label", "Expand player"); mini.append(mline, mplay, mt, grow);
   bar.append(top, seek, times, ctrl, msg, hand, mini);
   document.body.append(bar); document.body.classList.add("withbar");
-  Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand, mt, star } });
-  star.onclick = async () => {
-    const it = player.items[player.i];
-    if (!it) return;
-    star.disabled = true;
-    try {
-      const r = await post("/api/favorites", { op: isFav(it) ? "remove" : "add", artist: it.artist, title: it.title,
-        duration: it.duration || 0, cover: it.cover || "", vid: it.kind === "track" && it.url ? "track:" + it.url : "" });
-      state.favs = r.favorites; renderFavs();
-    } catch (e) { player.els.msg.textContent = "Could not update favorites."; }
-    star.disabled = false;
-    syncStar();
-  };
+  Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand, mt, star, prev, next } });
+  star.onclick = toggleFav;
   const minimize = on => {
     bar.classList.toggle("min", on); document.body.classList.toggle("barmin", on);
     try { localStorage.setItem("playerMin", on ? "1" : "0"); } catch (e) {}
@@ -622,6 +678,7 @@ function ensurePlayerBar() {
   const shown = () => {
     const p = au.duration ? au.currentTime / au.duration : 0;
     fill.style.width = dot.style.left = mline.style.width = `${p * 100}%`;
+    if (wv.fill) wv.fill.style.width = `${p * 100}%`;
     range.value = Math.round(p * 1000); cur.textContent = tm(au.currentTime); dur.textContent = au.duration ? tm(au.duration) : "";
     if ("mediaSession" in navigator && navigator.mediaSession.setPositionState && au.duration) {
       try { navigator.mediaSession.setPositionState({ duration: au.duration, position: au.currentTime, playbackRate: 1 }); } catch (e) {}
@@ -631,6 +688,7 @@ function ensurePlayerBar() {
     bar.classList.toggle("playing", on); main.replaceChildren(icon(on ? "pause" : "play")); main.setAttribute("aria-label", on ? "Pause" : "Play");
     mplay.replaceChildren(icon(on ? "pause" : "play")); mplay.setAttribute("aria-label", on ? "Pause" : "Play");
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = on ? "playing" : "paused";
+    syncWave();
   };
   au.addEventListener("timeupdate", shown); au.addEventListener("durationchange", shown);
   au.addEventListener("play", () => state_(true)); au.addEventListener("pause", () => state_(false));
@@ -642,7 +700,7 @@ function ensurePlayerBar() {
   main.onclick = () => { if (au.src && !au.src.startsWith("data:")) au.paused ? au.play().catch(() => {}) : au.pause(); };
   range.oninput = () => { if (au.duration) au.currentTime = au.duration * range.value / 1000; };
   prev.onclick = () => { if (au.currentTime > 3 || player.i === 0) au.currentTime = 0; else playAt(player.i - 1); };
-  next.onclick = () => playAt(player.i + 1);
+  next.onclick = () => { noteSkip(); playAt(player.i + 1); };
   close.onclick = stopPlayer;
   hand.onclick = () => {
     const it = player.items[player.i];
@@ -652,7 +710,7 @@ function ensurePlayerBar() {
   if ("mediaSession" in navigator) {  // lock-screen and notification controls
     const set = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
     set("play", () => au.play()); set("pause", () => au.pause());
-    set("previoustrack", () => prev.onclick()); set("nexttrack", () => playAt(player.i + 1));
+    set("previoustrack", () => prev.onclick()); set("nexttrack", () => next.onclick());
     set("seekto", d => { if (au.duration && d.seekTime != null) au.currentTime = d.seekTime; });
   }
 }
@@ -660,7 +718,7 @@ function ensurePlayerBar() {
 function setNow(it, text) {
   const e = player.els;
   e.title.textContent = it ? it.title : "";
-  e.sub.textContent = it ? `${it.artist || ""}${player.items.length > 1 ? `, ${player.i + 1} of ${player.items.length}` : ""}` : "";
+  e.sub.textContent = it ? `${it.artist || ""}${player.items.length > 1 && !player.wave ? `, ${player.i + 1} of ${player.items.length}` : ""}` : "";
   e.msg.textContent = text || "";
   e.mt.textContent = it ? `${it.artist ? it.artist + " - " : ""}${it.title}` : "";
   syncStar();
@@ -697,6 +755,7 @@ async function playAt(i) {
     await player.au.play().catch(() => { blocked = true; });  // a page opened by the bot may need one tap before sound is allowed
     setNow(it, blocked ? "Tap play to start." : "");
     if (i + 1 < player.items.length) trackUrl(i + 1).catch(() => { delete player.cache[i + 1]; });  // get the next track ready while this one plays
+    if (player.wave && i >= player.items.length - 3) extendWave();
   } catch (e) {
     delete player.cache[i];
     if (my !== player.token) return;
@@ -717,17 +776,167 @@ function maybeAutoplay() {
 }
 
 // start = null: the whole list (shuffled with mix); start = N: song N first, then the rest in order or mixed
+// My Wave: an endless queue by taste (what you play and save, plus similar artists). It tops itself up near the end.
+// A song skipped in its first seconds counts against its artist for the rest of the session.
+function noteSkip() {
+  const w = player.wave, it = player.items[player.i];
+  if (w && it && it.artist && player.au.currentTime < 20) w.skipped.add(it.artist);
+}
+async function fetchWave(w, n = 10) {
+  const r = await post("/api/wave", { seen: [...w.seen].slice(-500), skipped: [...w.skipped].slice(-50), n });
+  const fresh = asTracks(r.items).filter(t => !w.seen.has(norm(t.artist) + norm(t.title)));
+  fresh.forEach(t => w.seen.add(norm(t.artist) + norm(t.title)));
+  return fresh;
+}
+async function extendWave() {
+  const w = player.wave;
+  if (!w || w.busy) return;
+  w.busy = true;
+  try {
+    const more = await fetchWave(w);
+    if (player.wave === w) { player.items.push(...more); player.base.push(...more); }
+  } catch (e) { /* the queue plays on; the next track tries again */ }
+  w.busy = false;
+}
+let waveStarting = false;
+async function startWave() {
+  if (waveStarting) return;
+  waveStarting = true; wv.note = "Tuning your wave…"; syncWave();
+  const w = { seen: new Set(), skipped: new Set(), busy: false };
+  try {
+    const first = await fetchWave(w, 4);  // a short first batch: the music starts sooner, the next one loads while it plays
+    wv.note = "";
+    if (first.length) startQueue(first, false, 0, w); else wv.note = "Nothing to play yet.";
+  } catch (e) { wv.note = "The wave is unavailable. Try again."; }
+  waveStarting = false; syncWave();
+  if (wv.note) setTimeout(() => { wv.note = ""; syncWave(); }, 4000);
+}
+
+// the home page: the wave plays right here, so the bottom player is hidden while it is on screen
+const wv = { note: "", colorKey: null };
+const WAVE_COLORS = ["#E8C41C", "#C0267A", "#F08A1C"];
+// three bright colours from a cover, for the blurred background; null if the picture cannot be read
+function coverColors(url) {
+  return new Promise(done => {
+    if (!url || !url.startsWith("https://")) return done(null);
+    const img = new Image(); img.crossOrigin = "anonymous";
+    img.onerror = () => done(null);
+    img.onload = () => {
+      try {
+        const c = document.createElement("canvas"); c.width = c.height = 16;
+        const x = c.getContext("2d"); x.drawImage(img, 0, 0, 16, 16);
+        const px = x.getImageData(0, 0, 16, 16).data, bins = {};
+        for (let k = 0; k < px.length; k += 4) {
+          const r = px[k] / 255, g = px[k + 1] / 255, b = px[k + 2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+          if (mx < .2 || d < .08) continue;  // dark and grey pixels do not give a colour
+          const h = (d === 0 ? 0 : mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
+          const w = (d / mx) * mx + .02, bin = bins[Math.floor(h / 45)] || (bins[Math.floor(h / 45)] = { w: 0, h: 0 });
+          bin.w += w; bin.h += h * w;
+        }
+        const top = Object.values(bins).sort((a, b) => b.w - a.w).slice(0, 3).map(b => b.h / b.w);
+        if (!top.length) return done(null);
+        while (top.length < 3) top.push((top[0] + (top.length === 1 ? 40 : -50) + 360) % 360);
+        done(top.map(h => `hsl(${Math.round(h)} 88% 52%)`));
+      } catch (e) { done(null); }  // a picture from another site may be unreadable
+    };
+    img.src = url;
+  });
+}
+function hashColors(s) {
+  let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return [h, h + 45, h - 55].map(x => `hsl(${(x + 360) % 360} 85% 52%)`);
+}
+function setWaveColors(it) {
+  const key = it ? it.cover || it.title : "";
+  if (key === wv.colorKey) return;
+  wv.colorKey = key;
+  const bg = document.querySelector(".wavebg");
+  const apply = cols => { if (bg && wv.colorKey === key) cols.forEach((c, i) => bg.style.setProperty(`--c${i + 1}`, c)); };
+  if (!it) { apply(WAVE_COLORS); return; }
+  coverColors(it.cover).then(cols => apply(cols || hashColors(it.artist + it.title)));
+}
+function waveBg() {
+  const bg = $("div", "wavebg");
+  bg.setAttribute("aria-hidden", "true");
+  for (let k = 0; k < 4; k++) bg.append($("i"));
+  return bg;
+}
+function wavePage() {
+  const page = $("section", "wavepage"), cover = $("div", "wcover"), img = $("img"), row = $("div", "wrow");
+  const dis = iconButton("dislike", "Not for me: skip and play less of this artist", "wround");
+  const pill = $("div", "wpill"), like = iconButton("star", "Add to favorites", "wround");
+  const more = iconButton("more", "More: versions, save file, send to chat", "wround");
+  const ctrl = $("div", "wctrl"), prev = iconButton("prev", "Previous track", "wsk"), play = $("button", "wplay");
+  const next = iconButton("next", "Next track", "wsk"), prog = $("div", "wprog"), fill = $("div"), why = $("p", "wwhy");
+  img.alt = ""; cover.append(img); prog.append(fill); row.append(dis, pill, like, more); ctrl.append(prev, play, next);
+  page.append($("h1", "wavetitle", "My Wave"), cover, row, ctrl, prog, why);
+  why.setAttribute("role", "status");
+  const live = () => !!player.wave && !!player.bar && !player.bar.hidden;
+  play.onclick = () => { if (live()) player.els.main.onclick(); else startWave(); };
+  prev.onclick = () => live() && player.els.prev.onclick();
+  next.onclick = () => live() && player.els.next.onclick();
+  dis.onclick = () => {
+    const it = player.items[player.i];
+    if (live() && it && it.artist) player.wave.skipped.add(it.artist);
+    if (live()) player.els.next.onclick();
+  };
+  like.onclick = toggleFav;
+  more.onclick = () => { const it = player.items[player.i]; if (live() && it) openTrack(it); };
+  Object.assign(wv, { page, img, pill, like, dis, more, prev, play, next, fill, why, cover });
+  return page;
+}
+function syncWave() {
+  const on = !!player.wave && !!player.bar && !player.bar.hidden;
+  document.body.classList.toggle("wavehide", state.tab === "wave" && on);
+  if (!wv.page || !wv.page.isConnected) return;
+  const it = on ? player.items[player.i] : null, playing = on && !player.au.paused;
+  setWaveColors(it);
+  wv.pill.textContent = it ? `${it.artist ? it.artist + " — " : ""}${it.title}` : wv.note ? "" : "Tap play to start";
+  wv.cover.style.visibility = it ? "" : "hidden";  // the place stays, so the page does not jump when the first song starts
+  if (it && it.cover && it.cover.startsWith("https://")) { if (wv.img.src !== it.cover) wv.img.src = it.cover; } else wv.img.removeAttribute("src");
+  wv.play.replaceChildren(icon(playing ? "pause" : "play")); wv.play.setAttribute("aria-label", playing ? "Pause" : "Play My Wave");
+  wv.play.disabled = waveStarting;
+  [wv.prev, wv.next, wv.dis, wv.more, wv.like].forEach(b => { b.disabled = !it; });
+  const fav = !!it && isFav(it);
+  wv.like.classList.toggle("on", fav); wv.like.setAttribute("aria-label", fav ? "Remove from favorites" : "Add to favorites");
+  const msg = on ? player.els.msg.textContent : "";
+  wv.why.textContent = wv.note || msg || (it && it.because && it.because !== it.artist ? `Because you like ${it.because}` : it ? "" : "Music by your taste, non-stop");
+}
+
+// bottom tabs: Wave (home), Favorites, Stats, Discover
+const TABS = [["wave", "Wave"], ["favs", "Favorites"], ["stats", "Stats"], ["discover", "Discover"]];
+state.tab = "wave";
+try { const t = localStorage.getItem("tab"); if (TABS.some(x => x[0] === t)) state.tab = t; } catch (e) {}
+function tabbar() {
+  const nav = $("nav", "tabbar");
+  nav.setAttribute("aria-label", "Pages");
+  for (const [key, label] of TABS) {
+    const b = $("button", "tab"); b.dataset.tab = key;
+    b.append(icon(key === "favs" ? "star" : key), $("span", null, label));
+    b.onclick = () => setTab(key);
+    nav.append(b);
+  }
+  return nav;
+}
+function setTab(key) {
+  if (state.tab === key && document.getElementById("app").firstChild) return;
+  state.tab = key;
+  try { localStorage.setItem("tab", key); } catch (e) {}
+  window.scrollTo(0, 0);
+  render();
+}
+
 function startFavorites(shuffle, start = null) {
   startQueue(state.favs.map(f => ({ ...f, kind: "fav" })), shuffle, start);
 }
 
-function startQueue(list, shuffle, start = null) {
+function startQueue(list, shuffle, start = null, wave = null) {
   if (!list.length) return;
   const at = Math.min(Math.max(0, start ?? 0), list.length - 1);
   let items = list.slice(), first = at;
   if (shuffle && start === null) { items = shuffled(items); first = 0; }
   else if (shuffle) { items = [list[at], ...shuffled(list.filter((_, k) => k !== at))]; first = 0; }
-  Object.assign(player, { items, base: list.slice(), cache: {} });
+  Object.assign(player, { items, base: list.slice(), cache: {}, wave });
   if (sheetOpen) closeSheet();  // a track sheet must not keep its own player going over the queue
   ensurePlayerBar();
   // favorites can be handed to the chat as a queue; any other song opens its sheet (versions, save file, send to chat)
@@ -755,8 +964,10 @@ function stopPlayer() {
   player.token++;
   if (player.au) { player.au.pause(); player.au.removeAttribute("src"); player.au.load(); }
   if (player.bar) player.bar.hidden = true;
+  player.wave = null;
   document.body.classList.remove("withbar", "barmin");
   markNow();
+  syncWave();
   if (tg && tg.disableClosingConfirmation) tg.disableClosingConfirmation();
 }
 
@@ -1060,9 +1271,9 @@ function welcome() {
   input.focus();
 }
 
-function render() {
-  const root = document.getElementById("app"), d = state.d, page = document.createDocumentFragment();
-  page.append(letter(d), quickBox(), section("My Favorites", null, favBox()));
+function statsPage(d) {
+  const page = document.createDocumentFragment();
+  page.append(letter(d));
   if (d.total) {
     page.append(
       section("Activity", null, daysGrid(d.days)),
@@ -1075,12 +1286,37 @@ function render() {
         i => startQueue(asTracks(d.top_tracks), mix.on, i), x => `Play ${x.title}, ${x.artist}`)));
     page.append(section("Recent", null, recent(d.recent, i => startQueue(asTracks(d.recent), mix.on, i))));
   }
+  return page;
+}
+
+function discoverPage(d) {
+  const page = document.createDocumentFragment();
+  page.append($("h1", "pagetitle", "Discover"));
+  if (!state.recsLoaded) page.append($("p", "note", "Finding songs for you…"));
+  else if (!state.recs.length) page.append($("p", "note", "No recommendations right now."));
+  else page.append($("p", "note", d.total ? "Similar to what you listen to." : "Popular right now."), gifts(state.recs));
+  return page;
+}
+
+function render() {
+  const root = document.getElementById("app"), d = state.d, page = document.createDocumentFragment();
+  if (!document.querySelector(".tabbar")) document.body.append(tabbar());
+  document.body.classList.toggle("tab-wave", state.tab === "wave");
+  document.querySelectorAll(".tab").forEach(b => {
+    if (b.dataset.tab === state.tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
+  if (state.tab === "wave") page.append(wavePage());
+  else if (state.tab === "favs") page.append($("h1", "pagetitle", "My Favorites"), quickBox(), favBox());
+  else if (state.tab === "stats") page.append(statsPage(d));
+  else page.append(discoverPage(d));
   root.replaceChildren(page);
-  if (state.recs.length) root.append(section(d.total ? "Recommended" : "Popular now", null, gifts(state.recs)));
+  if (state.tab !== "wave") wv.page = null;
+  wv.colorKey = null;  // the new page starts from the default colours; syncWave sets the song's own
+  syncWave(); markNow();
 }
 
 async function main() {
-  document.body.prepend(backdrop());
+  document.body.prepend(waveBg()); document.body.prepend(backdrop());
   try { state.d = await api("/api/dashboard"); }
   catch (e) { document.getElementById("app").replaceChildren($("div", "err", "Open this page from the Telegram bot.")); return; }
   state.name = state.d.profile.name;
@@ -1092,8 +1328,9 @@ async function main() {
 
   try {
     state.recs = (await api("/api/recs")).items;
-    if (state.name) render();  // recommendations are optional: the page is already usable without them
   } catch (e) { /* ignore */ }
+  state.recsLoaded = true;
+  if (state.name && state.tab === "discover") render();  // recommendations are optional; the other pages do not use them
 }
 main();
 </script>

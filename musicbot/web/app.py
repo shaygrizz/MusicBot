@@ -6,6 +6,7 @@ import hmac
 import json
 import logging
 import os
+import random
 import re
 import secrets
 import shutil
@@ -115,6 +116,71 @@ async def _recs(user_id: int) -> list[dict]:
             recs = []
     _recs_cache[user_id] = (time.time(), recs)
     return recs
+
+
+WAVE_BATCH = 10
+WAVE_BUDGET = (
+    8  # секунд на сборку партии: Deezer отвечает по одному запросу на песню, медленный ответ не должен вешать страницу
+)
+_dz_artist: dict[str, int | None] = {}  # имя исполнителя -> id в Deezer (чтобы не искать заново)
+_dz_related: dict[int, list[dict]] = {}
+
+
+def _dz_artist_id(name: str) -> int | None:
+    key = name.lower()
+    if key not in _dz_artist:
+        found = _get_json("https://api.deezer.com/search/artist?limit=1&q=" + urllib.parse.quote(name)).get("data")
+        _dz_artist[key] = found[0]["id"] if found else None
+    return _dz_artist[key]
+
+
+def _wave_track(t: dict, because: str) -> dict:
+    return {
+        "artist": t["artist"]["name"] if t.get("artist") else because,
+        "title": t["title"],
+        "duration": int(t.get("duration") or 0),
+        "cover": (t.get("album") or {}).get("cover_medium", ""),
+        "because": because,
+    }
+
+
+def _deezer_wave(taste: list[tuple[str, int]], seen: set[str], skipped: set[str], n: int = WAVE_BATCH) -> list[dict]:
+    """Партия песен для «Моей волны»: с вероятностью 1/2 берём любимого исполнителя, иначе похожего на него.
+    Пропущенные исполнители в этой сессии выпадают, уже игравшие песни не повторяются."""
+    pool = [(a, w) for a, w in taste if a.lower() not in skipped]
+    out: list[dict] = []
+    if not pool:
+        chart = _deezer_chart()
+        random.shuffle(chart)
+        return [t for t in chart if db.fav_key(t["artist"], t["title"]) not in seen][:n]
+    deadline = time.monotonic() + WAVE_BUDGET
+    for _ in range(n * 2):  # с запасом: часть попыток не даст новой песни
+        if len(out) >= n or time.monotonic() > deadline:
+            break
+        name = random.choices([a for a, _ in pool], weights=[w for _, w in pool])[0]
+        try:
+            aid = _dz_artist_id(name)
+            if aid is None:
+                continue
+            if random.random() < 0.5:
+                if aid not in _dz_related:
+                    _dz_related[aid] = _get_json(f"https://api.deezer.com/artist/{aid}/related?limit=12").get(
+                        "data", []
+                    )
+                related = [r for r in _dz_related[aid] if r["name"].lower() not in skipped]
+                if related:
+                    rel = random.choice(related)
+                    aid, name = rel["id"], rel["name"]
+            top = _get_json(f"https://api.deezer.com/artist/{aid}/top?limit=25").get("data", [])
+        except Exception as e:
+            logging.info("волна: %s: %s", name, str(e)[:80])
+            continue
+        fresh = [t for t in top if db.fav_key(t["artist"]["name"], t["title"]) not in seen]
+        if fresh:
+            track = _wave_track(random.choice(fresh[:12]), name)
+            seen.add(db.fav_key(track["artist"], track["title"]))  # в одной партии одна песня не встречается дважды
+            out.append(track)
+    return out
 
 
 AVATAR_DIR = paths.AVATARS
@@ -525,6 +591,21 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         user = await authed_user(request)
         return web.json_response({"items": await _recs(user["id"])})
 
+    async def wave(request: web.Request):
+        """«Моя волна»: следующая партия песен по вкусу. Страница присылает уже игравшие песни и пропущенных исполнителей."""
+        user = await authed_user(request)
+        body = await request.json()
+        seen = {str(k)[:300] for k in body.get("seen", [])[:500]}
+        skipped = {str(a).lower()[:100] for a in body.get("skipped", [])[:50]}
+        n = min(max(int(body.get("n") or WAVE_BATCH), 1), WAVE_BATCH)  # первая партия мала: музыка стартует быстрее
+        taste = await db.taste_artists(user["id"])
+        try:
+            items = await asyncio.to_thread(_deezer_wave, taste, seen, skipped, n)
+        except Exception as e:
+            logging.warning("webapp: волна не собралась: %s", str(e)[:120])
+            raise web.HTTPBadGateway(text="wave failed")
+        return web.json_response({"items": items})
+
     async def health(_: web.Request):
         return web.json_response({"ok": True})
 
@@ -744,6 +825,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             web.get("/fav/{tok}", serve_fav),
             web.post("/api/handoff", handoff),
             web.get("/api/recs", recs),
+            web.post("/api/wave", wave),
             web.post("/api/track", track),
             web.get("/api/artist", artist_songs),
             web.post("/api/resolve", resolve),
