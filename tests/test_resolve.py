@@ -179,3 +179,25 @@ async def test_partial_answer_is_asked_again_past_the_cache(monkeypatch, result)
     found = await fetch.resolve(result("Too Late", "The Weeknd", 239))
     assert [r.url for r in found] == ["https://y/late"]
     assert ("The Weeknd Too Late", True, True) in asked
+
+
+@pytest.mark.parametrize(
+    ("title", "core"),
+    [
+        ("ЮМОРИСТ - Original Motion Picture Soundtrack", "ЮМОРИСТ"),
+        ("Time - Original Score", "Time"),
+        ("Theme - OST", "Theme"),
+        ("Song - Soundtrack Version", "Song"),
+        ("Soundtrack To My Life", "Soundtrack To My Life"),  # само слово в названии — не хвост
+    ],
+)
+def test_soundtrack_tails_are_cut(title, core):
+    from musicbot.textutil import core_title
+
+    assert core_title(title) == core
+
+
+def test_soundtrack_song_matches_its_youtube_upload(result):
+    want = result("ЮМОРИСТ - Original Motion Picture Soundtrack", "FACE", 143)
+    assert fetch.reject_reason(want, result("ЮМОРИСТ (Original Motion Picture Soundtrack)", "Face", 0)) is None
+    assert "длина" in fetch.reject_reason(want, result("ЮМОРИСТ", "FACE", 195))  # обычная версия длиннее
