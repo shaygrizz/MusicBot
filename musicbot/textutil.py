@@ -20,6 +20,12 @@ def norm(s: str) -> str:
     return re.sub(r"[\W_]+", "", s)
 
 
+def flat(s: str) -> str:
+    """Как norm, но содержимое скобок остаётся: «Ocean Eyes (Astronomyy Remix)» -> «oceaneyesastronomyyremix».
+    Каталог пишет версию через тире («Ocean Eyes - Astronomyy Remix»), YouTube — в скобках; так они совпадают."""
+    return re.sub(r"[\W_]+", "", fold(s.lower()))
+
+
 _TRANSLIT = str.maketrans(
     {
         "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh", "з": "z", "и": "i",

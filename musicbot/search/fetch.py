@@ -14,7 +14,7 @@ from ..download import (
     probe_duration,
 )
 from ..paths import DOWNLOAD_DIR
-from ..textutil import BAD_VERSION_RE, core_title, is_mix_cut, latin, norm, same_artist
+from ..textutil import BAD_VERSION_RE, core_title, flat, is_mix_cut, latin, norm, same_artist
 from .engine import search
 from .models import is_lazy
 
@@ -49,7 +49,9 @@ def reject_reason(meta: SearchResult, r: SearchResult, loose: bool = False) -> s
     """Почему версия не подходит (None — подходит). Каждое правило строгое; loose ослабляет только длину."""
     title = core_title(meta.title)
     want = norm(title)
-    if want and want not in norm(r.title) and latin(title) not in latin(r.title):
+    # «Vienna - Live at Nassau Coliseum…» в каталоге и «Vienna (Live at Nassau Coliseum…)» на YouTube — одна запись:
+    # третье сравнение не выбрасывает скобки, поэтому версия должна совпасть целиком (Astronomyy Remix ≠ Blackbear Remix)
+    if want and want not in norm(r.title) and latin(title) not in latin(r.title) and flat(title) not in flat(r.title):
         return "другое название"
     names = artist_names(meta.artist)
     if names and not _artist_matches(names, r):

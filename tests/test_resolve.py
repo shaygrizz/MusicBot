@@ -201,3 +201,48 @@ def test_soundtrack_song_matches_its_youtube_upload(result):
     want = result("ЮМОРИСТ - Original Motion Picture Soundtrack", "FACE", 143)
     assert fetch.reject_reason(want, result("ЮМОРИСТ (Original Motion Picture Soundtrack)", "Face", 0)) is None
     assert "длина" in fetch.reject_reason(want, result("ЮМОРИСТ", "FACE", 195))  # обычная версия длиннее
+
+
+@pytest.mark.parametrize(
+    ("want", "found"),
+    [
+        (
+            ("Don't Stop 'Til You Get Enough - 2003 Edit", "Michael Jackson", 237),
+            ("Don't Stop 'Til You Get Enough (2003 Edit)", "Michael Jackson", 237),
+        ),
+        (
+            ("Ocean Eyes - Astronomyy Remix", "Billie Eilish, Astronomyy", 296),
+            ("Ocean Eyes (Astronomyy Remix)", "Billie Eilish", 297),
+        ),
+        (
+            ("Friday (feat. Mufasa & Hypeman) - Dopamine Re-Edit", "Riton, Nightcrawlers", 169),
+            ("Friday (feat. Mufasa & Hypeman) (Dopamine Re-Edit)", "Nightcrawlers", 0),
+        ),
+        (
+            ("The Man Who Sold The World - ChangesNowBowie Version", "David Bowie", 241),
+            ("The Man Who Sold The World (ChangesNowBowie Version)", "David Bowie", 242),
+        ),
+        (
+            ("Vienna - Live at Nassau Coliseum, Uniondale, NY - December 1977", "Billy Joel", 212),
+            ("Vienna (Live at Nassau Coliseum, Uniondale, NY - December 1977)", "Billy Joel", 213),
+        ),
+        (
+            ("Running With The Wolves - Wolfwalkers Edition", "AURORA", 166),
+            ("Running With The Wolves (Wolfwalkers Edition)", "AURORA", 167),
+        ),
+    ],
+)
+def test_version_after_a_dash_matches_the_same_version_in_brackets(result, want, found):
+    assert fetch.reject_reason(result(*want), result(*found)) is None
+
+
+@pytest.mark.parametrize(
+    "found",
+    [
+        ("Ocean Eyes (Blackbear Remix)", "Billie Eilish", 296),  # другая обработка той же песни
+        ("ocean eyes", "Billie Eilish", 296),  # оригинал вместо нужного ремикса
+    ],
+)
+def test_a_different_version_of_the_song_is_still_refused(result, found):
+    want = result("Ocean Eyes - Astronomyy Remix", "Billie Eilish, Astronomyy", 296)
+    assert fetch.reject_reason(want, result(*found)) == "другое название"
