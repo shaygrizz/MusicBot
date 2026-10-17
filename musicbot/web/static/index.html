@@ -249,11 +249,11 @@
   .wsk:disabled { opacity: .3; }
   .wplay { display: grid; place-items: center; width: 64px; height: 64px; padding: 0; border: 0; border-radius: 50%; background: var(--rose); color: var(--on-rose); cursor: pointer; }
   .wplay svg { width: 28px; height: 28px; fill: currentColor; }
-  .wprog { position: relative; height: 28px; margin-top: var(--s4); }
+  .wprog { position: relative; height: 28px; margin-top: var(--s4); touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
   .wprog::before { content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 2px; background: var(--rule); }
   .wfill { position: absolute; left: 0; top: 13px; height: 2px; width: 0; background: var(--rose); }
   .wdot { position: absolute; top: 7px; left: 0; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--gold); pointer-events: none; }
-  .wrange { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .wrange { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }  /* работает с клавиатуры; касания ведёт .wprog */
   .wprog:has(:focus-visible) { outline: 2px solid var(--gold); outline-offset: 2px; }
   .wwhy { min-height: 22px; margin: var(--s2) 0 0; color: var(--gold); font-size: var(--t-meta); }
   /* строки дашборда, которые можно нажать */
@@ -669,7 +669,7 @@ function ensurePlayerBar() {
   const shown = () => {
     const p = au.duration ? au.currentTime / au.duration : 0;
     fill.style.width = dot.style.left = mline.style.width = `${p * 100}%`;
-    if (wv.fill) {  // the seek line on the wave page
+    if (wv.fill && !wv.drag) {  // the seek line on the wave page (while it is dragged, the finger decides)
       wv.fill.style.width = wv.dot.style.left = `${p * 100}%`;
       wv.range.value = Math.round(p * 1000); wv.cur.textContent = tm(au.currentTime); wv.dur.textContent = au.duration ? tm(au.duration) : "";
     }
@@ -812,7 +812,7 @@ async function startWave() {
 }
 
 // the home page: the wave plays right here, so the bottom player is hidden while it is on screen
-const wv = { note: "" };
+const wv = { note: "", drag: false };
 function wavePage() {
   const page = $("section", "wavepage"), cover = $("div", "gem cut8 wgem"), inner = $("div", "cut8"), img = $("img"), row = $("div", "wrow"), card = $("div", "wcard");
   const dis = iconButton("dislike", "Not for me: skip and play less of this artist", "wround");
@@ -829,6 +829,17 @@ function wavePage() {
   why.setAttribute("role", "status");
   const live = () => !!player.wave && !!player.bar && !player.bar.hidden;
   play.onclick = () => { if (live()) player.els.main.onclick(); else startWave(); };
+  // seek: a tap anywhere on the line jumps there, and a finger or mouse can drag; the page does not scroll meanwhile
+  const seekTo = e => {
+    const au = player.au, box = prog.getBoundingClientRect();
+    if (!live() || !au.duration || !box.width) return;
+    const at = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
+    au.currentTime = au.duration * at;
+    fill.style.width = dot.style.left = `${at * 100}%`; range.value = Math.round(at * 1000); cur.textContent = tm(au.currentTime);
+  };
+  prog.onpointerdown = e => { if (!live()) return; wv.drag = true; try { prog.setPointerCapture(e.pointerId); } catch (x) {} seekTo(e); };
+  prog.onpointermove = e => { if (wv.drag) seekTo(e); };
+  prog.onpointerup = prog.onpointercancel = () => { wv.drag = false; };
   prev.onclick = () => live() && player.els.prev.onclick();
   next.onclick = () => live() && player.els.next.onclick();
   dis.onclick = () => {
