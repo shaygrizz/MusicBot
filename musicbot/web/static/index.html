@@ -255,6 +255,18 @@
   .wdot { position: absolute; top: 7px; left: 0; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--gold); pointer-events: none; }
   .wrange { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }  /* работает с клавиатуры; касания ведёт .wprog */
   .wprog:has(:focus-visible) { outline: 2px solid var(--gold); outline-offset: 2px; }
+  /* громкость: тонкая линия как у перемотки, динамик слева; одинаковая в Wave, нижнем плеере и шторке */
+  .vol { display: flex; align-items: center; gap: var(--s1); width: min(240px, 100%); margin: var(--s2) auto 0; }
+  .vol[hidden] { display: none; }
+  .vol .ico { width: 36px; height: 36px; color: var(--text2); }
+  .vol .ico svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .vline { position: relative; flex: 1; height: 28px; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
+  .vline::before { content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 2px; background: var(--rule); }
+  .vfill { position: absolute; left: 0; top: 13px; height: 2px; width: 0; background: var(--rose); }
+  .vdot { position: absolute; top: 8px; left: 0; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--gold); pointer-events: none; }
+  .vrange { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }  /* с клавиатуры; касания ведёт .vline */
+  .vline:has(:focus-visible) { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .mini .vol { width: 100%; margin: 0; }
   .wwhy { min-height: 22px; margin: var(--s2) 0 0; color: var(--gold); font-size: var(--t-meta); }
   /* строки дашборда, которые можно нажать */
   .list li.pick { cursor: pointer; }
@@ -559,6 +571,8 @@ function icon(name) {
     star: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z",  // «в избранное» — сердце
     dislike: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10zM4 4l16 16",
     more: "M5 12h.01M12 12h.01M19 12h.01",
+    volume: "M4 10v4h3l4 3V7l-4 3zM15 9.5a3.5 3.5 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10",
+    muted: "M4 10v4h3l4 3V7l-4 3zM16 9.5l5 5M21 9.5l-5 5",
     wave: "M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4",
     stats: "M5 20V10M12 20V4M19 20v-7",
     discover: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM15.5 8.5l-2 5-5 2 2-5z" };
@@ -614,6 +628,39 @@ function remix() {
   setNow(player.items[player.i], player.els.msg.textContent);
   if (player.i + 1 < player.items.length) trackUrl(player.i + 1).catch(() => { delete player.cache[player.i + 1]; });
 }
+// volume: one level for every player, remembered on this device. Where the page cannot set it (iPhone keeps volume
+// to the hardware buttons) the slider is hidden.
+const vol = { v: 1, last: 1, ok: false, ctrls: new Set() };
+try { const s = parseFloat(localStorage.getItem("vol")); if (s >= 0 && s <= 1) vol.v = s; } catch (e) {}
+try { const a = new Audio(); a.volume = 0.5; vol.ok = a.volume === 0.5; } catch (e) {}
+function applyVol(au) { if (au && vol.ok) au.volume = vol.v; }
+function setVol(v) {
+  vol.v = Math.min(1, Math.max(0, v));
+  if (vol.v > 0) vol.last = vol.v;
+  try { localStorage.setItem("vol", String(vol.v)); } catch (e) {}
+  applyVol(player.au); applyVol(sheetAu);
+  for (const c of vol.ctrls) { if (c.isConnected) c.sync(); else vol.ctrls.delete(c); }  // players that were closed drop out
+}
+function volumeControl() {
+  const box = $("div", "vol"), btn = iconButton("volume", "Mute", "quiet"), line = $("div", "vline");
+  const fill = $("div", "vfill"), dot = $("div", "vdot"), range = $("input", "vrange");
+  range.type = "range"; range.min = 0; range.max = 100; range.setAttribute("aria-label", "Volume");
+  line.append(fill, dot, range); box.append(btn, line); box.hidden = !vol.ok;
+  box.sync = () => {
+    fill.style.width = dot.style.left = `${vol.v * 100}%`; range.value = Math.round(vol.v * 100);
+    btn.replaceChildren(icon(vol.v ? "volume" : "muted")); btn.setAttribute("aria-label", vol.v ? "Mute" : "Unmute");
+  };
+  btn.onclick = () => setVol(vol.v ? 0 : vol.last);
+  range.oninput = () => setVol(range.value / 100);
+  // like the seek line: a tap anywhere sets the level, a finger or mouse can drag
+  const at = e => { const r = line.getBoundingClientRect(); if (r.width) setVol((e.clientX - r.left) / r.width); };
+  let drag = false;
+  line.onpointerdown = e => { drag = true; try { line.setPointerCapture(e.pointerId); } catch (x) {} at(e); };
+  line.onpointermove = e => { if (drag) at(e); };
+  line.onpointerup = line.onpointercancel = () => { drag = false; };
+  vol.ctrls.add(box); box.sync();
+  return box;
+}
 function iconButton(name, label, cls) {
   const b = $("button", "ico" + (cls ? " " + cls : ""));
   b.setAttribute("aria-label", label); b.append(icon(name)); return b;
@@ -633,7 +680,7 @@ function ensurePlayerBar() {
     document.body.classList.toggle("barmin", player.bar.classList.contains("min"));
     return;
   }
-  const au = new Audio(); au.preload = "auto";
+  const au = new Audio(); au.preload = "auto"; applyVol(au);
   const bar = $("div", "nowbar"), top = $("div", "nowtop"), disc = $("div", "disc"), info = $("div", "nowinfo");
   const title = $("div", "nowt"), sub = $("div", "nows"), close = iconButton("close", "Close player", "quiet");
   const shrink = iconButton("down", "Minimize player", "quiet"), tools = $("div", "nowtools");
@@ -651,7 +698,7 @@ function ensurePlayerBar() {
   disc.append(discSvg()); info.append(title, sub); tools.append(star, shrink, close); top.append(disc, info, tools);
   seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(mixb, prev, main, next, loop);
   mt.setAttribute("aria-label", "Expand player"); mini.append(mline, mplay, mt, grow);
-  bar.append(top, seek, times, ctrl, msg, hand, mini);
+  bar.append(top, seek, times, ctrl, volumeControl(), msg, hand, mini);
   document.body.append(bar); document.body.classList.add("withbar");
   Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand, mt, star, prev, next } });
   star.onclick = toggleFav;
@@ -914,7 +961,7 @@ function wavePage() {
   range.oninput = () => { const au = player.au; if (au && au.duration) au.currentTime = au.duration * range.value / 1000; };
   times.append(cur, dur);
   img.alt = ""; inner.append(img); cover.append(inner); prog.append(fill, dot, range); row.append(dis, pill, like); ctrl.append(prev, play, next);
-  card.append(row, ctrl, prog, times, why);
+  card.append(row, ctrl, prog, times, volumeControl(), why);
   page.append($("h1", "wavetitle", "My Wave"), cover, card);
   why.setAttribute("role", "status");
   const live = () => !!player.wave && !!player.bar && !player.bar.hidden;
@@ -1092,7 +1139,7 @@ if (tg && tg.BackButton) tg.BackButton.onClick(() => closeSheet());
 // compact player for a track opened from the lists: same look as the bottom player, no browser controls
 // refresh: asks for a new address of the same sound; used when the song was paused for long or its link died
 function miniPlayer(src, refresh) {
-  const au = new Audio(); au.preload = "auto"; au.src = src;
+  const au = new Audio(); au.preload = "auto"; au.src = src; applyVol(au);
   let started = false, pausedAt = 0, healing = false;
   const heal = async () => {
     if (!refresh || healing) return;
@@ -1112,7 +1159,7 @@ function miniPlayer(src, refresh) {
   const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
   const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
   range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
-  disc.append(discSvg()); seek.append(fill, dot, range); times.append(cur, dur); mid.append(seek, times);
+  disc.append(discSvg()); seek.append(fill, dot, range); times.append(cur, dur); mid.append(seek, times, volumeControl());
   box.append(disc, mid, loop, main);
   const shown = () => {
     const p = au.duration ? au.currentTime / au.duration : 0;
