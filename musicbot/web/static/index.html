@@ -691,7 +691,17 @@ function ensurePlayerBar() {
     if (repeat.on) { au.currentTime = 0; au.play().catch(() => {}); return; }
     playAt(player.i + 1);
   });
-  main.onclick = () => { if (au.src && !au.src.startsWith("data:")) au.paused ? au.play().catch(() => {}) : au.pause(); };
+  au.addEventListener("pause", () => { au.pausedAt = Date.now(); });
+  let healed = null;  // a link that dies while playing (expired on the server) is renewed once per song
+  au.addEventListener("playing", () => { healed = null; });
+  au.addEventListener("error", () => {
+    if (!au.src || au.src.startsWith("data:") || healed === player.i) return;
+    healed = player.i; revive();
+  });
+  main.onclick = () => {
+    if (!au.src || au.src.startsWith("data:")) return;
+    if (!au.paused) au.pause(); else if (stalled(au)) revive(); else au.play().catch(() => {});
+  };
   range.oninput = () => { if (au.duration) au.currentTime = au.duration * range.value / 1000; };
   prev.onclick = () => { if (au.currentTime > 3 || player.i === 0) au.currentTime = 0; else playAt(player.i - 1); };
   next.onclick = () => { noteSkip(); playAt(player.i + 1); };
@@ -703,7 +713,7 @@ function ensurePlayerBar() {
   };
   if ("mediaSession" in navigator) {  // lock-screen and notification controls
     const set = (a, f) => { try { navigator.mediaSession.setActionHandler(a, f); } catch (e) {} };
-    set("play", () => au.play()); set("pause", () => au.pause());
+    set("play", () => stalled(au) ? revive() : au.play()); set("pause", () => au.pause());
     set("previoustrack", () => prev.onclick()); set("nexttrack", () => next.onclick());
     set("seekto", d => { if (au.duration && d.seekTime != null) au.currentTime = d.seekTime; });
   }
@@ -732,10 +742,26 @@ function trackUrl(i, bg = false) {
   if (!it) return Promise.reject(new Error("end"));
   const body = { artist: it.artist, title: it.title, duration: it.duration || 0, cover: it.cover || "" };
   const signal = player.ctl && player.ctl.signal;
-  if (!player.cache[i]) player.cache[i] = (it.kind === "fav" ? post("/api/favplay", body, signal)
-    : post("/api/track", { ...body, url: it.url || "", prefetch: bg }, signal)).then(r => r.url);
+  // the server keeps a downloaded song for a limited time: a link fetched long ago (the wave was paused) is asked for again
+  if (player.cache[i] && Date.now() - player.cache[i].at > URL_FRESH) delete player.cache[i];
+  if (!player.cache[i]) {
+    const p = (it.kind === "fav" ? post("/api/favplay", body, signal)
+      : post("/api/track", { ...body, url: it.url || "", prefetch: bg }, signal)).then(r => r.url);
+    p.at = Date.now();
+    player.cache[i] = p;
+  }
   return player.cache[i];
 }
+const URL_FRESH = 8 * 60 * 1000, REVIVE_AFTER = 5 * 60 * 1000;
+// a song paused for long (or whose link stopped working) is fetched again and goes on from the same second
+function revive() {
+  const au = player.au;
+  if (!au || !player.items[player.i]) return;
+  const pos = au.currentTime || 0;
+  delete player.cache[player.i];
+  playAt(player.i, pos);
+}
+const stalled = au => au.paused && !au.src.startsWith("data:") && !au.src.startsWith("blob:") && (au.error || Date.now() - (au.pausedAt || Date.now()) > REVIVE_AFTER);
 // get song k ready; never rejects, and forgets a failed attempt only if the queue is still the same one
 function warm(k, bg = true) {
   const c = player.cache;
@@ -1064,8 +1090,24 @@ window.addEventListener("popstate", () => { if (sheetOpen) closeSheet(true); });
 if (tg && tg.BackButton) tg.BackButton.onClick(() => closeSheet());
 
 // compact player for a track opened from the lists: same look as the bottom player, no browser controls
-function miniPlayer(src) {
+// refresh: asks for a new address of the same sound; used when the song was paused for long or its link died
+function miniPlayer(src, refresh) {
   const au = new Audio(); au.preload = "auto"; au.src = src;
+  let started = false, pausedAt = 0, healing = false;
+  const heal = async () => {
+    if (!refresh || healing) return;
+    healing = true;
+    const pos = au.currentTime || 0;
+    try {
+      au.src = await refresh();
+      if (pos > 1) au.addEventListener("loadedmetadata", () => { au.currentTime = pos; }, { once: true });
+      await au.play().catch(() => {});
+    } catch (e) { /* refresh reports its own failure */ }
+    healing = false;
+  };
+  au.addEventListener("playing", () => { started = true; });
+  au.addEventListener("pause", () => { pausedAt = Date.now(); });
+  au.addEventListener("error", () => { if (started) heal(); });  // before the first sound the caller's own fallback handles errors
   const box = $("div", "mini"), disc = $("div", "disc"), mid = $("div"), main = iconButton("play", "Play", "main"), loop = repeatButton();
   const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
   const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
@@ -1081,7 +1123,11 @@ function miniPlayer(src) {
   au.addEventListener("timeupdate", shown); au.addEventListener("durationchange", shown);
   au.addEventListener("play", () => { on(true); if (player.au && player.au !== au) player.au.pause(); });  // one sound at a time
   au.addEventListener("pause", () => on(false)); au.addEventListener("ended", () => { au.currentTime = 0; if (repeat.on) au.play().catch(() => {}); else on(false); });
-  main.onclick = () => au.paused ? au.play().catch(() => {}) : au.pause();
+  main.onclick = () => {
+    if (!au.paused) au.pause();
+    else if (started && (au.error || Date.now() - pausedAt > REVIVE_AFTER)) heal();
+    else au.play().catch(() => {});
+  };
   range.oninput = () => { if (au.duration) au.currentTime = au.duration * range.value / 1000; };
   return { box, au };
 }
@@ -1106,6 +1152,9 @@ async function openTrack(rec) {
   const setStatus = (t, cls) => { status.className = "status" + (cls ? " " + cls : ""); status.textContent = t; };
   const lock = on => { busy = on; [play, save, chat].forEach(b => b.disabled = on || !current); };
   const getFile = () => { setStatus("Downloading…"); return post("/api/fetch", { vid: current.vid, mode: "file" }); };
+  const again = async () => {  // the same version once more: its link expired while the song was paused
+    try { const f = await getFile(); setStatus(""); return f.url; } catch (e) { failed(); throw e; }
+  };
   const failed = () => setStatus("Download failed. Try another version.", "bad");
 
   const favLabel = () => isFav(rec) ? "Remove from favorites" : "Add to favorites";
@@ -1128,7 +1177,7 @@ async function openTrack(rec) {
       // the server streams while the file is still downloading, so sound starts in about a second;
       // if this WebView cannot play the stream, fall back to the whole file
       slot.replaceChildren();
-      const mp = miniPlayer(current.stream), v = current; sheetAu = mp.au; slot.append(mp.box);
+      const mp = miniPlayer(current.stream, again), v = current; sheetAu = mp.au; slot.append(mp.box);
       setStatus("Loading…");
       let started = false, fellBack = false, blocked = false;
       const fallback = async () => {
@@ -1155,7 +1204,7 @@ async function openTrack(rec) {
     try {
       const f = await getFile();
       slot.replaceChildren();
-      const mp = miniPlayer(f.url); sheetAu = mp.au; slot.append(mp.box);
+      const mp = miniPlayer(f.url, again); sheetAu = mp.au; slot.append(mp.box);
       setStatus("Ready.", "ok");
       mp.au.play().catch(() => setStatus("Press play to start.", "ok"));
     } catch (e) { failed(); }

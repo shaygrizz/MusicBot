@@ -257,8 +257,10 @@ def _purge() -> None:
 
 
 def _ready_file(uid: int, vid: str) -> tuple[str, Downloaded] | None:
-    for tok, (u, _, v, d) in files.items():
-        if u == uid and v == vid and d.path.exists():
+    now = time.time()
+    for tok, (u, ts, v, d) in files.items():
+        if u == uid and v == vid and now - ts <= STORE_TTL and d.path.exists():
+            files[tok] = (u, now, v, d)  # отдали ссылку - срок отсчитывается заново, иначе она истекла бы через секунды
             return tok, d
     return None
 
@@ -675,6 +677,9 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         if not entry:
             raise web.HTTPNotFound()
         r = entry[2]
+        now = time.time()  # песню слушают: ссылка и версия живут с последнего запроса, пауза их не губит
+        streams[request.match_info["tok"]] = (uid, now, vid)
+        versions[vid] = (entry[0], now, r)
         if request.match_info["tok"] not in played:
             played.add(request.match_info["tok"])
             await db.log_play(uid, r.title, r.artist, r.duration, r.source, r.url, "audio", r.thumb_url)
@@ -803,6 +808,8 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         if not item or time.time() - item[1] > STORE_TTL or not item[3].path.exists():
             raise web.HTTPNotFound()
         d = item[3]
+        # песню слушают: срок идёт с последнего запроса
+        files[request.match_info["tok"]] = (item[0], time.time(), item[2], d)
         name = urllib.parse.quote(f"{d.artist} - {d.title}{d.path.suffix}".strip(" -"))
         ctype = "audio/mpeg" if d.path.suffix == ".mp3" else "audio/mp4"
         return web.FileResponse(
