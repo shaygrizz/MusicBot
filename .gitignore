@@ -6,9 +6,7 @@ __pycache__/
 data/
 .venv312/
 tools/cloudflared/
-.claude/
 cookies.txt
-CLAUDE.md
 .pytest_cache/
 .ruff_cache/
 *.egg-info/

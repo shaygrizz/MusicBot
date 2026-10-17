@@ -12,8 +12,6 @@ __pycache__/
 *.pyc
 .git/
 .gitignore
-.claude/
-CLAUDE.md
 run.bat
 run.sh
 tests/
