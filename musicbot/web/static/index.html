@@ -233,7 +233,8 @@
   /* главная: «My Wave» в стиле страницы: ваша картинка за стеклом, золотая рамка, грани; цвет обложки лишь слегка подсвечивает фон */
   .wavepage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s5); text-align: center; min-height: calc(100dvh - var(--tabbar) - 2 * var(--s5)); }
   .wavetitle { margin: 0; font: 400 clamp(44px, 14vw, 64px)/1 var(--display); letter-spacing: .01em; }
-  .wgem { width: 168px; height: 168px; }
+  .wgem { width: 168px; height: 168px; padding: 0; background: none; border-radius: 12px; overflow: hidden; clip-path: none; }  /* картинка без рамки */
+  .wgem > div { clip-path: none; background: none; }
   .wgem img { object-position: center; }
   .wcard { width: 100%; }
   .wrow { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: var(--s2); align-items: center; width: 100%; }
@@ -747,8 +748,8 @@ async function playAt(i) {
     let blocked = false;
     await player.au.play().catch(() => { blocked = true; });  // a page opened by the bot may need one tap before sound is allowed
     setNow(it, blocked ? "Tap play to start." : "");
-    if (i + 1 < player.items.length) trackUrl(i + 1).catch(() => { delete player.cache[i + 1]; });  // get the next track ready while this one plays
-    if (player.wave && i >= player.items.length - 3) extendWave();
+    if (player.wave) { prefetchAhead(i); if (i >= player.items.length - WAVE_AHEAD - 1) extendWave(); }
+    else if (i + 1 < player.items.length) trackUrl(i + 1).catch(() => { delete player.cache[i + 1]; });  // get the next track ready while this one plays
   } catch (e) {
     delete player.cache[i];
     if (my !== player.token) return;
@@ -781,13 +782,18 @@ async function fetchWave(w, n = 10) {
   fresh.forEach(t => w.seen.add(norm(t.artist) + norm(t.title)));
   return fresh;
 }
+// the wave keeps the next five songs ready: the first one loads on its own, then the five after it are fetched at once
+const WAVE_AHEAD = 5;
+function prefetchAhead(from) {
+  for (let k = from + 1; k <= from + WAVE_AHEAD && k < player.items.length; k++) trackUrl(k).catch(() => { delete player.cache[k]; });
+}
 async function extendWave() {
   const w = player.wave;
   if (!w || w.busy) return;
   w.busy = true;
   try {
     const more = await fetchWave(w);
-    if (player.wave === w) { player.items.push(...more); player.base.push(...more); }
+    if (player.wave === w) { player.items.push(...more); player.base.push(...more); prefetchAhead(player.i); }
   } catch (e) { /* the queue plays on; the next track tries again */ }
   w.busy = false;
 }
