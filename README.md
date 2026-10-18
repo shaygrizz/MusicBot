@@ -16,6 +16,8 @@ Search by title, artist, a remembered lyric line, a link, or a voice/video messa
 - **Playlists and albums.** Send a YouTube, YouTube Music or Spotify playlist or album link: the bot lists the songs, sends them to the chat in batches (with Stop) or adds them all to favorites.
 - **Songs from other bots.** Forward audio from other bots or chats; the bot collects them and adds them to favorites, playing them from Telegram's own copy.
 - **Mini App dashboard.** Favorites, listening stats, a full player with repeat, and hand-off to chat playback.
+- **Languages.** English, Russian and Italian in the bot and the Mini App. `/start` asks for the language first;
+  it can be changed later in `/settings` or in the Mini App profile (one choice for both).
 
 ## Stack
 
@@ -82,7 +84,7 @@ Tests run offline: catalog and source responses are faked, so they are fast and 
 
 ## Deployment
 
-A `Dockerfile` and `amvera.yaml` are included. The image bundles Python 3.12, Node.js (yt-dlp's JS runtime) and ffmpeg. Mount persistent storage at `/data` and set `BOT_TOKEN` as a secret.
+A `Dockerfile` is included (`amvera.yaml` is left over from the previous host, Amvera). The image bundles Python 3.12, Node.js (yt-dlp's JS runtime) and ffmpeg. The bot now runs on Bothost: mount persistent storage at `/data` and set `BOT_TOKEN` and the other variables (`DATA_DIR`, `WEBAPP_HOST`, `WEBAPP_PORT`, `WEBAPP_URL`, `ADMIN_USERS`, `SEARCH_FAST_DEADLINE`) in the host's settings.
 
 YouTube often blocks data-center IPs. If downloads fail with a "not a bot" error, place a `cookies.txt` exported from a logged-in browser in `DATA_DIR`.
 

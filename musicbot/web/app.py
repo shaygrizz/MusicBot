@@ -20,7 +20,7 @@ from aiogram import Bot
 from aiogram.types import FSInputFile
 from aiohttp import ClientSession, ClientTimeout, web
 
-from .. import audiocache, db, download, favcache, net, paths, search
+from .. import audiocache, db, download, favcache, net, paths, search, texts
 from .. import favorites as favlib  # внутри make_app есть обработчик с именем favorites
 from ..download import Downloaded, SearchResult
 from ..search import fetch as fetch_mod
@@ -367,6 +367,11 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             raise web.HTTPUnauthorized(text="unauthorized")
         if allowed and user["id"] not in allowed:
             raise web.HTTPForbidden(text="forbidden")
+        try:
+            lang = await db.get_lang(user["id"])
+        except Exception:
+            lang = None  # язык не причина отказывать в запросе
+        texts.use(lang or texts.guess(user.get("language_code")))  # сообщения бота, отправленные из этого запроса
         return user
 
     async def index(_: web.Request):
@@ -407,6 +412,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             "tg_name": user.get("first_name", ""),
             "avatar": f"/avatar/{profile['avatar_token']}" if profile["avatar_token"] else None,
             "bg": f"/avatar/{profile['bg_token']}" if profile["bg_token"] else None,
+            "lang": texts.current(),  # выбранный язык, а если не выбирал, то язык интерфейса Telegram
         }
         data["favorites"] = await db.fav_list(user["id"])
         favcache.spawn(favcache.backfill(user["id"], data["favorites"]))  # то, чего нет на диске, догружается в фоне
@@ -421,6 +427,15 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             raise web.HTTPBadRequest(text="empty name")
         await db.set_display_name(user["id"], name)
         return web.json_response({"name": name})
+
+    async def set_lang(request: web.Request):
+        """Язык бота и мини-аппа: один на пользователя, хранится в базе."""
+        user = await authed_user(request)
+        lang = str((await request.json()).get("lang", ""))
+        if lang not in texts.LANGS:
+            raise web.HTTPBadRequest(text="bad lang")
+        await db.set_lang(user["id"], lang)
+        return web.json_response({"lang": lang})
 
     async def upload_avatar(request: web.Request):
         """Фото профиля: принимаем картинку, приводим к квадрату 256x256 JPEG."""
@@ -832,6 +847,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             web.get("/healthz", health),
             web.get("/api/dashboard", dashboard),
             web.post("/api/profile", set_profile),
+            web.post("/api/lang", set_lang),
             web.post("/api/avatar", upload_avatar),
             web.post("/api/background", upload_background),
             web.get("/avatar/{tok}", serve_avatar),

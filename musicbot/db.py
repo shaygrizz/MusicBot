@@ -54,6 +54,7 @@ MIGRATIONS = [
     ("users", "display_name", "TEXT"),
     ("users", "avatar_token", "TEXT"),
     ("users", "bg_token", "TEXT"),
+    ("users", "lang", "TEXT"),  # язык бота и мини-аппа: en, ru, it; пусто — ещё не выбирал
     ("plays", "cover", "TEXT"),
     ("favorites", "url", "TEXT"),  # ссылка на источник (песня из плейлиста YouTube): качаем по ней, без поиска
 ]
@@ -83,6 +84,20 @@ async def get_profile(user_id: int) -> dict:
         "avatar_token": (row[1] or "") if row else "",
         "bg_token": (row[2] or "") if row else "",
     }
+
+
+async def get_lang(user_id: int) -> str | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT lang FROM users WHERE user_id=?", (user_id,))
+        row = await cur.fetchone()
+    return (row[0] or None) if row else None
+
+
+async def set_lang(user_id: int, lang: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await _ensure_user(db, user_id)
+        await db.execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
+        await db.commit()
 
 
 async def _ensure_user(db, user_id: int) -> None:

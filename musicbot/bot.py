@@ -9,7 +9,7 @@ import time
 import urllib.parse
 import uuid
 
-from aiogram import Bot, Dispatcher, F, Router
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import (
@@ -44,6 +44,19 @@ def https_url(raw: str) -> str:
 webapp_url = https_url(os.getenv("WEBAPP_URL", ""))  # свой https-адрес, если есть; иначе туннель
 
 router = Router()
+
+
+class LangMiddleware(BaseMiddleware):
+    """На каждое обновление выставляет язык того, кто написал: все texts.say() внутри обработчика говорят на нём.
+    Кто язык ещё не выбирал, получает язык интерфейса Telegram (по умолчанию английский)."""
+
+    async def __call__(self, handler, event, data):
+        user = data.get("event_from_user")
+        if user:
+            texts.use(await db.get_lang(user.id) or texts.guess(user.language_code))
+        return await handler(event, data)
+
+
 # короткие токены для callback_data (лимит 64 байта) -> (url, метаданные из поиска)
 pending: dict[str, tuple[str, download.SearchResult | None]] = {}
 deep_queries: dict[str, str] = {}  # токен кнопки «Искать глубже» -> очищенный запрос
@@ -128,7 +141,88 @@ async def start(m: Message, command: CommandObject):
     if query:
         await run_search(m, query)
         return
+    if await db.get_lang(m.from_user.id) is None:  # первым делом предлагаем выбрать язык
+        await m.answer(texts.say("lang_choose"), reply_markup=language_keyboard("s"))
+        return
     await m.answer(texts.say("start"), reply_markup=quick_keyboard())
+
+
+def language_keyboard(origin: str) -> InlineKeyboardMarkup:
+    """Кнопки языков с флагами. origin: «s» — выбор при /start, «g» — из настроек (там есть «Назад» и отметка выбранного)."""
+    current = texts.current()
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"{flag} {name}" + (" ✓" if origin == "g" and code == current else ""),
+                callback_data=f"lang:{code}:{origin}",
+            )
+        ]
+        for code, (flag, name) in texts.LANGS.items()
+    ]
+    if origin == "g":
+        rows.append([InlineKeyboardButton(text=texts.say("settings_back"), callback_data="set:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def settings_keyboard() -> InlineKeyboardMarkup:
+    flag, name = texts.LANGS[texts.current()]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=texts.say("settings_lang", flag=flag, name=name), callback_data="set:lang")]
+        ]
+    )
+
+
+@router.message(Command("settings", "language"))
+async def settings_cmd(m: Message):
+    if not allowed(m.from_user.id):
+        return
+    await m.answer(texts.say("settings_title"), parse_mode=ParseMode.HTML, reply_markup=settings_keyboard())
+
+
+@router.callback_query(F.data.startswith("set:"))
+async def on_settings(cb: CallbackQuery):
+    if not allowed(cb.from_user.id):
+        await cb.answer()
+        return
+    await cb.answer()
+    try:
+        if cb.data == "set:lang":
+            await cb.message.edit_text(texts.say("lang_choose"), reply_markup=language_keyboard("g"))
+        else:
+            await cb.message.edit_text(
+                texts.say("settings_title"), parse_mode=ParseMode.HTML, reply_markup=settings_keyboard()
+            )
+    except Exception:
+        pass  # сообщение устарело или текст не изменился
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def on_language(cb: CallbackQuery, bot: Bot):
+    if not allowed(cb.from_user.id):
+        await cb.answer()
+        return
+    _, code, origin = cb.data.split(":", 2)
+    if code not in texts.LANGS:
+        await cb.answer()
+        return
+    await db.set_lang(cb.from_user.id, code)
+    texts.use(code)
+    await cb.answer()
+    await set_menu_button(bot, cb.from_user.id)  # подпись кнопки меню тоже на новом языке
+    flag, name = texts.LANGS[code]
+    try:
+        if origin == "s":
+            await cb.message.edit_text(texts.say("lang_set", flag=flag, name=name))
+        else:
+            await cb.message.edit_text(
+                texts.say("settings_title"), parse_mode=ParseMode.HTML, reply_markup=settings_keyboard()
+            )
+    except Exception:
+        pass
+    # кнопки под полем ввода меняются только вместе с новым сообщением
+    text = texts.say("start") if origin == "s" else texts.say("lang_set", flag=flag, name=name)
+    await bot.send_message(cb.message.chat.id, text, reply_markup=quick_keyboard())
 
 
 @router.message(Command("app"))
@@ -167,7 +261,7 @@ async def stats(m: Message):
     if s["top_tracks"]:
         lines.append(texts.say("stats_top_tracks"))
         lines += [
-            f"{i}. {html.escape(t)}, {html.escape(a or 'unknown')} ({c})"
+            f"{i}. {html.escape(t)}, {html.escape(a or texts.say('unknown'))} ({c})"
             for i, (t, a, c) in enumerate(s["top_tracks"], 1)
         ]
     await m.answer("\n".join(lines), parse_mode=ParseMode.HTML)
@@ -273,7 +367,7 @@ def favorites_text(favs: list[dict]) -> str:
 
 
 @router.message(Command("favorites"))
-@router.message(F.text == texts.say("kb_favorites"))
+@router.message(F.text.in_(texts.variants("kb_favorites")))
 async def favorites_cmd(m: Message):
     if not allowed(m.from_user.id):
         return
@@ -284,7 +378,7 @@ async def favorites_cmd(m: Message):
     await m.answer(favorites_text(favs), parse_mode=ParseMode.HTML, reply_markup=favorites_keyboard(favs))
 
 
-@router.message(F.text == texts.say("kb_dashboard"))
+@router.message(F.text.in_(texts.variants("kb_dashboard")))
 async def dashboard_button(m: Message):
     await app_cmd(m)
 
@@ -661,6 +755,19 @@ async def on_download(cb: CallbackQuery, bot: Bot):
         await status.edit_text(texts.say("too_big" if "50 MB" in str(e) else "dl_fail"))
 
 
+async def set_menu_button(bot: Bot, chat_id: int | None = None) -> None:
+    """Кнопка меню с дашбордом; для chat_id — личная, с подписью на языке пользователя."""
+    if not webapp_url:
+        return
+    try:
+        await bot.set_chat_menu_button(
+            chat_id=chat_id,
+            menu_button=MenuButtonWebApp(text=texts.say("menu_button"), web_app=WebAppInfo(url=webapp_url)),
+        )
+    except Exception:
+        logging.exception("не удалось установить кнопку меню")
+
+
 async def setup_webapp(bot: Bot, bot_username: str):
     """Поднимает локальный сервер дашборда, туннель (если нет своего адреса) и кнопку меню."""
     global webapp_url
@@ -673,12 +780,7 @@ async def setup_webapp(bot: Bot, bot_username: str):
     if not webapp_url:
         logging.warning("Дашборд работает только локально: нет cloudflared и WEBAPP_URL")
         return runner, None
-    try:
-        await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text=texts.say("menu_button"), web_app=WebAppInfo(url=webapp_url))
-        )
-    except Exception:
-        logging.exception("не удалось установить кнопку меню")
+    await set_menu_button(bot)
     logging.info("Дашборд: %s", webapp_url)
     return runner, (tun[0] if tun else None)
 
@@ -692,22 +794,30 @@ async def main():
     warm_task = asyncio.create_task(search.keep_warm())  # noqa: F841 — прогрев: поиск идёт по готовым соединениям
     bot = Bot(TOKEN)
     dp = Dispatcher()
+    dp.update.outer_middleware(LangMiddleware())
     dp.include_router(playlist_bot.router)  # раньше общего: ссылки на плейлисты и пересланные песни
     dp.include_router(router)
     me = await bot.get_me()
     logging.info("Бот запущен: @%s", me.username)
     try:
-        await bot.set_my_commands(
-            [
-                BotCommand(command="favorites", description=texts.say("cmd_favorites")),
-                BotCommand(command="app", description=texts.say("cmd_app")),
-                BotCommand(command="stats", description=texts.say("cmd_stats")),
-                BotCommand(command="help", description=texts.say("cmd_help")),
-                BotCommand(command="start", description=texts.say("cmd_start")),
-            ]
-        )
-        await bot.set_my_description(texts.say("bot_description"))
-        await bot.set_my_short_description(texts.say("bot_short"))
+        for code in texts.LANGS:  # английский — для всех остальных; ru и it — тем, у кого Telegram на этом языке
+            scope = None if code == texts.DEFAULT else code
+            await bot.set_my_commands(
+                [
+                    BotCommand(command=cmd, description=texts.say(key, code))
+                    for cmd, key in [
+                        ("favorites", "cmd_favorites"),
+                        ("app", "cmd_app"),
+                        ("stats", "cmd_stats"),
+                        ("settings", "cmd_settings"),
+                        ("help", "cmd_help"),
+                        ("start", "cmd_start"),
+                    ]
+                ],
+                language_code=scope,
+            )
+            await bot.set_my_description(texts.say("bot_description", code), language_code=scope)
+            await bot.set_my_short_description(texts.say("bot_short", code), language_code=scope)
     except Exception:
         logging.exception("не удалось обновить описание бота")
     runner, tunnel_proc = await setup_webapp(bot, me.username)

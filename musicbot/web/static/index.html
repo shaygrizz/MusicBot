@@ -147,6 +147,11 @@
   button:disabled { opacity: .4; cursor: default; }
   button[hidden] { display: none; }
 
+  /* язык */
+  .langs { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s4); }
+  .langbtn { flex: 1 1 0; padding: var(--s3) var(--s2); border: 1px solid var(--rule); background: none; color: var(--text); white-space: nowrap; cursor: pointer; }
+  .langbtn[aria-pressed="true"] { border-color: var(--rose); color: var(--rose); }
+
   /* профиль и избранное */
   .avatar { display: block; padding: 0; border: 0; background: none; cursor: pointer; }
   .field { display: block; width: 100%; padding: var(--s3) var(--s4); border: 1px solid var(--rule); border-radius: 0; background: var(--bg); color: var(--text); font: inherit; }
@@ -290,11 +295,170 @@ const NS = "http://www.w3.org/2000/svg";
 const svg = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
 const pad = n => String(n).padStart(2, "0");
 const dayKey = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const plural = (n, one, many) => n === 1 ? one : many;
-const tracks = n => `${n} ${plural(n, "track", "tracks")}`;
+// languages: the same list and the same choice as in the bot (stored per user on the server)
+const LANGS = { en: ["🇬🇧", "English"], ru: ["🇷🇺", "Русский"], it: ["🇮🇹", "Italiano"] };
+const LOCALES = { en: "en-GB", ru: "ru-RU", it: "it-IT" };
+const I18N = {
+  en: {
+    title: "Dashboard", loading: "Loading…", openFromBot: "Open this page from the Telegram bot.",
+    nTracks: { one: "{n} track", other: "{n} tracks" }, nPlays: { one: "{n} play", other: "{n} plays" },
+    nDays: { one: "{n} day", other: "{n} days" }, hUnit: "h", minUnit: "min",
+    yourMusicNamed: "Your Music, {name}", yourMusic: "Your Music", noActivity: "No activity yet.", listened: " listened.",
+    streak: " Streak: ", profileHint: "Tap your photo to change the picture and background.",
+    editProfile: "Edit profile", profilePhoto: "Profile photo",
+    activityAria: "Activity over the last 30 days", ago30: "30 days ago", today: "Today", clockAria: "Listening by hour of day",
+    unknownArtist: "Unknown artist", playItem: "Play {title}, {artist}",
+    songs: "Songs", findingSongs: "Finding songs…", noSongs: "No songs found for this artist.", songsFail: "Could not load songs. Try again.",
+    noTracks: "No tracks yet.", favFail: "Could not update favorites.", favRemove: "Remove from favorites", favAdd: "Add to favorites",
+    playFavs: "Play favorites ({n})", shuffle: "Shuffle", repeat: "Repeat this track", mix: "Mix",
+    mute: "Mute", unmute: "Unmute", volume: "Volume", closePlayer: "Close player", minPlayer: "Minimize player",
+    expandPlayer: "Expand player", play: "Play", pause: "Pause", prevTrack: "Previous track", nextTrack: "Next track", seek: "Seek",
+    handChat: "Continue in chat", handFile: "Save file or send to chat", queuePos: "{i} of {n}", myFavorites: "My Favorites",
+    tapPlay: "Tap play to start.", trackFail: "Could not load this track. Skipping…",
+    waveTuning: "Tuning your wave…", waveNothing: "Nothing to play yet.", waveDown: "The wave is unavailable. Try again.",
+    myWave: "My Wave", waveDislike: "Not for me: skip and play less of this artist", waveTapPlay: "Tap play to start",
+    playWave: "Play My Wave", wavePaused: "Paused. Tap play to go on.", because: "Because you like {name}",
+    waveIdle: "Music by your taste, non-stop",
+    tabWave: "Wave", tabFavs: "Favorites", tabStats: "Stats", tabDiscover: "Discover", pages: "Pages",
+    sendingChat: "Sending to chat…", sendChatFail: "Could not send to chat.",
+    sentChat: { one: "{n} track sent to chat. Tap the first one there and it keeps playing after you close the app.",
+      other: "{n} tracks sent to chat. Tap the first one there and it keeps playing after you close the app." },
+    trackAria: "Track", becauseListen: "Because you listen to {name}", findingVersions: "Finding versions…",
+    saveFile: "Save file", sendChat: "Send to chat", downloading: "Downloading…", dlFail: "Download failed. Try another version.",
+    ready: "Ready.", pressPlay: "Press play to start.", dlStarted: "Download started.", openingBrowser: "Opening file in browser.",
+    openingFile: "Opening file.", sending: "Sending…", sentToChat: "Sent to chat.", noSource: "No source found for this track.",
+    versionsFail: "Could not load versions. Try again.",
+    profile: "Profile", changePhoto: "Change photo", changeBg: "Change background", resetBg: "Reset background", name: "Name",
+    save: "Save", uploadingBg: "Uploading background…", tooLarge: "This file is too large.", bgUpdated: "Background updated.",
+    bgUploadFail: "Could not upload the background.", bgReset: "Background reset.", bgResetFail: "Could not reset the background.",
+    uploadingPhoto: "Uploading photo…", photoUpdated: "Photo updated.", photoFail: "Could not upload the photo.",
+    enterName: "Enter a name.", saveFail: "Could not save. Try again.", language: "Language",
+    cont: "Continue", whatCall: "What should we call you?", welcome: "Welcome",
+    secActivity: "Activity", secHours: "Listening hours", secArtists: "Top artists", secTracks: "Top tracks", secRecent: "Recent",
+    songsBy: "Songs by {artist}", discover: "Discover", findingForYou: "Finding songs for you…",
+    noRecs: "No recommendations right now.", similar: "Similar to what you listen to.", popular: "Popular right now.",
+  },
+  ru: {
+    title: "Дашборд", loading: "Загрузка…", openFromBot: "Откройте эту страницу из Telegram-бота.",
+    nTracks: { one: "{n} трек", few: "{n} трека", many: "{n} треков", other: "{n} трека" },
+    nPlays: { one: "{n} прослушивание", few: "{n} прослушивания", many: "{n} прослушиваний", other: "{n} прослушивания" },
+    nDays: { one: "{n} день", few: "{n} дня", many: "{n} дней", other: "{n} дня" }, hUnit: "ч", minUnit: "мин",
+    yourMusicNamed: "Ваша музыка, {name}", yourMusic: "Ваша музыка", noActivity: "Пока нет активности.", listened: " прослушано.",
+    streak: " Серия: ", profileHint: "Нажмите на фото, чтобы сменить картинку и фон.",
+    editProfile: "Изменить профиль", profilePhoto: "Фото профиля",
+    activityAria: "Активность за последние 30 дней", ago30: "30 дней назад", today: "Сегодня", clockAria: "Прослушивание по часам суток",
+    unknownArtist: "Неизвестный исполнитель", playItem: "Включить {title}, {artist}",
+    songs: "Песни", findingSongs: "Ищу песни…", noSongs: "Песен этого исполнителя не найдено.", songsFail: "Не удалось загрузить песни. Попробуйте ещё раз.",
+    noTracks: "Пока нет треков.", favFail: "Не удалось обновить избранное.", favRemove: "Убрать из избранного", favAdd: "В избранное",
+    playFavs: "Включить избранное ({n})", shuffle: "Вперемешку", repeat: "Повторять этот трек", mix: "Вперемешку",
+    mute: "Выключить звук", unmute: "Включить звук", volume: "Громкость", closePlayer: "Закрыть плеер", minPlayer: "Свернуть плеер",
+    expandPlayer: "Развернуть плеер", play: "Играть", pause: "Пауза", prevTrack: "Предыдущий трек", nextTrack: "Следующий трек", seek: "Перемотка",
+    handChat: "Продолжить в чате", handFile: "Сохранить файл или отправить в чат", queuePos: "{i} из {n}", myFavorites: "Избранное",
+    tapPlay: "Нажмите «Играть», чтобы начать.", trackFail: "Не удалось загрузить трек. Пропускаю…",
+    waveTuning: "Настраиваю вашу волну…", waveNothing: "Пока нечего играть.", waveDown: "Волна недоступна. Попробуйте ещё раз.",
+    myWave: "Моя волна", waveDislike: "Не моё: пропустить и реже включать этого исполнителя", waveTapPlay: "Нажмите «Играть», чтобы начать",
+    playWave: "Включить «Мою волну»", wavePaused: "Пауза. Нажмите «Играть», чтобы продолжить.", because: "Потому что вам нравится {name}",
+    waveIdle: "Музыка по вашему вкусу, без остановок",
+    tabWave: "Волна", tabFavs: "Избранное", tabStats: "Статистика", tabDiscover: "Открытия", pages: "Страницы",
+    sendingChat: "Отправляю в чат…", sendChatFail: "Не удалось отправить в чат.",
+    sentChat: { one: "{n} трек отправлен в чат. Нажмите на первый там, и он продолжит играть после закрытия приложения.",
+      few: "{n} трека отправлено в чат. Нажмите на первый там, и он продолжит играть после закрытия приложения.",
+      many: "{n} треков отправлено в чат. Нажмите на первый там, и он продолжит играть после закрытия приложения.",
+      other: "{n} трека отправлено в чат. Нажмите на первый там, и он продолжит играть после закрытия приложения." },
+    trackAria: "Трек", becauseListen: "Потому что вы слушаете {name}", findingVersions: "Ищу версии…",
+    saveFile: "Сохранить файл", sendChat: "Отправить в чат", downloading: "Скачиваю…", dlFail: "Не удалось скачать. Попробуйте другую версию.",
+    ready: "Готово.", pressPlay: "Нажмите «Играть», чтобы начать.", dlStarted: "Загрузка началась.", openingBrowser: "Открываю файл в браузере.",
+    openingFile: "Открываю файл.", sending: "Отправляю…", sentToChat: "Отправлено в чат.", noSource: "Для этого трека источник не найден.",
+    versionsFail: "Не удалось загрузить версии. Попробуйте ещё раз.",
+    profile: "Профиль", changePhoto: "Сменить фото", changeBg: "Сменить фон", resetBg: "Сбросить фон", name: "Имя",
+    save: "Сохранить", uploadingBg: "Загружаю фон…", tooLarge: "Файл слишком большой.", bgUpdated: "Фон обновлён.",
+    bgUploadFail: "Не удалось загрузить фон.", bgReset: "Фон сброшен.", bgResetFail: "Не удалось сбросить фон.",
+    uploadingPhoto: "Загружаю фото…", photoUpdated: "Фото обновлено.", photoFail: "Не удалось загрузить фото.",
+    enterName: "Введите имя.", saveFail: "Не удалось сохранить. Попробуйте ещё раз.", language: "Язык",
+    cont: "Продолжить", whatCall: "Как к вам обращаться?", welcome: "Добро пожаловать",
+    secActivity: "Активность", secHours: "Часы прослушивания", secArtists: "Любимые исполнители", secTracks: "Любимые треки", secRecent: "Недавние",
+    songsBy: "Песни: {artist}", discover: "Открытия", findingForYou: "Подбираю песни для вас…",
+    noRecs: "Сейчас рекомендаций нет.", similar: "Похоже на то, что вы слушаете.", popular: "Популярное сейчас.",
+  },
+  it: {
+    title: "Dashboard", loading: "Caricamento…", openFromBot: "Apri questa pagina dal bot di Telegram.",
+    nTracks: { one: "{n} brano", other: "{n} brani" }, nPlays: { one: "{n} ascolto", other: "{n} ascolti" },
+    nDays: { one: "{n} giorno", other: "{n} giorni" }, hUnit: "h", minUnit: "min",
+    yourMusicNamed: "La tua musica, {name}", yourMusic: "La tua musica", noActivity: "Ancora nessuna attività.", listened: " ascoltati.",
+    streak: " Serie: ", profileHint: "Tocca la tua foto per cambiare immagine e sfondo.",
+    editProfile: "Modifica profilo", profilePhoto: "Foto del profilo",
+    activityAria: "Attività degli ultimi 30 giorni", ago30: "30 giorni fa", today: "Oggi", clockAria: "Ascolto per ora del giorno",
+    unknownArtist: "Artista sconosciuto", playItem: "Riproduci {title}, {artist}",
+    songs: "Brani", findingSongs: "Cerco i brani…", noSongs: "Nessun brano trovato per questo artista.", songsFail: "Impossibile caricare i brani. Riprova.",
+    noTracks: "Ancora nessun brano.", favFail: "Impossibile aggiornare i preferiti.", favRemove: "Rimuovi dai preferiti", favAdd: "Aggiungi ai preferiti",
+    playFavs: "Riproduci i preferiti ({n})", shuffle: "Casuale", repeat: "Ripeti questo brano", mix: "Casuale",
+    mute: "Disattiva audio", unmute: "Attiva audio", volume: "Volume", closePlayer: "Chiudi il player", minPlayer: "Riduci il player",
+    expandPlayer: "Espandi il player", play: "Riproduci", pause: "Pausa", prevTrack: "Brano precedente", nextTrack: "Brano successivo", seek: "Posizione",
+    handChat: "Continua in chat", handFile: "Salva il file o invia in chat", queuePos: "{i} di {n}", myFavorites: "Preferiti",
+    tapPlay: "Tocca riproduci per iniziare.", trackFail: "Impossibile caricare questo brano. Passo oltre…",
+    waveTuning: "Preparo la tua onda…", waveNothing: "Ancora niente da riprodurre.", waveDown: "L'onda non è disponibile. Riprova.",
+    myWave: "La mia onda", waveDislike: "Non fa per me: salta e proponi meno questo artista", waveTapPlay: "Tocca riproduci per iniziare",
+    playWave: "Avvia La mia onda", wavePaused: "In pausa. Tocca riproduci per continuare.", because: "Perché ti piace {name}",
+    waveIdle: "Musica secondo i tuoi gusti, senza sosta",
+    tabWave: "Onda", tabFavs: "Preferiti", tabStats: "Statistiche", tabDiscover: "Scopri", pages: "Pagine",
+    sendingChat: "Invio in chat…", sendChatFail: "Impossibile inviare in chat.",
+    sentChat: { one: "{n} brano inviato in chat. Tocca il primo lì e continuerà a suonare anche dopo aver chiuso l'app.",
+      other: "{n} brani inviati in chat. Tocca il primo lì e continuerà a suonare anche dopo aver chiuso l'app." },
+    trackAria: "Brano", becauseListen: "Perché ascolti {name}", findingVersions: "Cerco le versioni…",
+    saveFile: "Salva il file", sendChat: "Invia in chat", downloading: "Scarico…", dlFail: "Download non riuscito. Prova un'altra versione.",
+    ready: "Pronto.", pressPlay: "Premi riproduci per iniziare.", dlStarted: "Download avviato.", openingBrowser: "Apro il file nel browser.",
+    openingFile: "Apro il file.", sending: "Invio…", sentToChat: "Inviato in chat.", noSource: "Nessuna fonte trovata per questo brano.",
+    versionsFail: "Impossibile caricare le versioni. Riprova.",
+    profile: "Profilo", changePhoto: "Cambia foto", changeBg: "Cambia sfondo", resetBg: "Ripristina sfondo", name: "Nome",
+    save: "Salva", uploadingBg: "Carico lo sfondo…", tooLarge: "Il file è troppo grande.", bgUpdated: "Sfondo aggiornato.",
+    bgUploadFail: "Impossibile caricare lo sfondo.", bgReset: "Sfondo ripristinato.", bgResetFail: "Impossibile ripristinare lo sfondo.",
+    uploadingPhoto: "Carico la foto…", photoUpdated: "Foto aggiornata.", photoFail: "Impossibile caricare la foto.",
+    enterName: "Inserisci un nome.", saveFail: "Impossibile salvare. Riprova.", language: "Lingua",
+    cont: "Continua", whatCall: "Come ti chiamiamo?", welcome: "Benvenuto",
+    secActivity: "Attività", secHours: "Ore di ascolto", secArtists: "Artisti preferiti", secTracks: "Brani preferiti", secRecent: "Recenti",
+    songsBy: "Brani di {artist}", discover: "Scopri", findingForYou: "Cerco brani per te…",
+    noRecs: "Nessun consiglio al momento.", similar: "Simile a ciò che ascolti.", popular: "Popolare in questo momento.",
+  },
+};
+const guessLang = code => { const s = String(code || "").toLowerCase().split("-")[0]; return LANGS[s] ? s : "en"; };
+let LANG = guessLang(tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code);
+// t(key, { name }) fills {name}; a plural entry (an object) is picked by the number n of the language's own rules
+const fill = (s, vars) => s.replace(/\{(\w+)\}/g, (m, k) => vars && vars[k] != null ? vars[k] : m);
+const t = (key, vars) => {
+  let s = I18N[LANG][key] ?? I18N.en[key] ?? key;
+  if (typeof s === "object") s = s[new Intl.PluralRules(LANG).select(vars.n)] || s.other;
+  return fill(s, vars);
+};
+const tn = (key, n) => t(key, { n });
+function applyLang() { document.documentElement.lang = LANG; document.title = t("title"); }
+// the language is shared with the bot: the choice is saved on the server
+async function setLang(code) {
+  if (!LANGS[code] || code === LANG) return;
+  LANG = code; applyLang();
+  try { await post("/api/lang", { lang: code }); } catch (e) { /* the page already speaks the new language */ }
+}
+// texts that live outside render(): the tab bar and the label of the player's hand-off button
+function relabel() {
+  const bar = document.querySelector(".tabbar");
+  if (bar) bar.remove();
+  if (player.els && player.els.hand && player.items.length) player.els.hand.textContent = handLabel(player.items[0]);
+}
+const handLabel = it => t(it.kind === "fav" ? "handChat" : "handFile");
+function langSwitch(after) {
+  const box = $("div", "langs");
+  box.setAttribute("role", "group"); box.setAttribute("aria-label", t("language"));
+  for (const [code, [flag, name]] of Object.entries(LANGS)) {
+    const b = $("button", "langbtn", `${flag} ${name}`);
+    b.setAttribute("aria-pressed", code === LANG ? "true" : "false");
+    b.onclick = async () => { await setLang(code); relabel(); after(); };
+    box.append(b);
+  }
+  return box;
+}
+const tracks = n => tn("nTracks", n);
 const mmss = s => s ? `${Math.floor(s / 60)}:${pad(Math.round(s % 60))}` : "";
-const hoursText = s => s >= 3600 ? `${(s / 3600).toFixed(1)} h` : `${Math.max(1, Math.round(s / 60))} min`;
-const dateShort = dt => dt.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const hoursText = s => s >= 3600 ? `${(s / 3600).toFixed(1)} ${t("hUnit")}` : `${Math.max(1, Math.round(s / 60))} ${t("minUnit")}`;
+const dateShort = dt => dt.toLocaleDateString(LOCALES[LANG], { day: "numeric", month: "short" });
 
 // profile, favorites and loaded data live here; render() draws the page from it
 const state = { name: "", tgName: "", avatar: null, bg: null, favs: [], d: null, recs: [] };
@@ -322,8 +486,8 @@ function backdrop() {
 function setBackdrop() { const i = document.querySelector(".backdrop img"); if (i) i.src = state.bg || "/static/Diamond.jpg"; }
 function avatar() {
   const btn = $("button", "avatar"), g = $("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
-  btn.setAttribute("aria-label", "Edit profile");
-  img.alt = "Profile photo"; img.src = state.avatar || "/static/Diamond.jpg"; inner.append(img); g.append(inner); btn.append(g);
+  btn.setAttribute("aria-label", t("editProfile"));
+  img.alt = t("profilePhoto"); img.src = state.avatar || "/static/Diamond.jpg"; inner.append(img); g.append(inner); btn.append(g);
   btn.onclick = openProfile;
   return btn;
 }
@@ -345,17 +509,17 @@ function streak(days) {
 
 function letter(d) {
   const wrap = $("div", "letter"), body = $("div"), p = $("p");  // avatar (a button) opens the profile sheet
-  body.append($("h1", null, state.name ? `Your Music, ${state.name}` : "Your Music"));
-  if (!d.total) p.textContent = "No activity yet.";
+  body.append($("h1", null, state.name ? t("yourMusicNamed", { name: state.name }) : t("yourMusic")));
+  if (!d.total) p.textContent = t("noActivity");
   else {
     const st = streak(d.days);
     const add = (t, b) => { if (t) p.append(document.createTextNode(t)); if (b) p.append($("b", null, b)); };
     add("", tracks(d.total));
     add(", ", hoursText(d.seconds));
-    add(" listened.");
-    if (st > 1) { add(" Streak: "); add("", `${st} days`); add("."); }
+    add(t("listened"));
+    if (st > 1) { add(t("streak")); add("", tn("nDays", st)); add("."); }
   }
-  body.append(p, $("p", "note", "Tap your photo to change the picture and background.")); wrap.append(avatar(), body);
+  body.append(p, $("p", "note", t("profileHint"))); wrap.append(avatar(), body);
   return wrap;
 }
 
@@ -370,7 +534,7 @@ function vinyl(cx, cy, r, cls) {
 
 function daysGrid(days) {
   const cols = 10, rows = 3, step = 32, r = 13;
-  const s = svg("svg", { viewBox: `0 0 ${cols * step} ${rows * step}`, role: "img", "aria-label": "Activity over the last 30 days" });
+  const s = svg("svg", { viewBox: `0 0 ${cols * step} ${rows * step}`, role: "img", "aria-label": t("activityAria") });
   const vals = [], dates = [];
   for (let i = 29; i >= 0; i--) { const dt = new Date(); dt.setDate(dt.getDate() - i); dates.push(dt); vals.push(days[dayKey(dt)] || 0); }
   const max = Math.max(1, ...vals);
@@ -381,14 +545,14 @@ function daysGrid(days) {
     p.append(t); s.append(p);
   });
   const wrap = $("div"), axis = $("div", "axis");
-  axis.append($("span", null, "30 days ago"), $("span", null, "Today"));
+  axis.append($("span", null, t("ago30")), $("span", null, t("today")));
   wrap.append(s, axis);
   return wrap;
 }
 
 function clock(hours) {
   const list = Array.from({ length: 24 }, (_, h) => hours[h] || 0), max = Math.max(...list), peak = list.indexOf(max);
-  const s = svg("svg", { viewBox: "0 0 200 200", role: "img", "aria-label": "Listening by hour of day" });
+  const s = svg("svg", { viewBox: "0 0 200 200", role: "img", "aria-label": t("clockAria") });
   list.forEach((v, h) => {
     const a = (h * 15 - 90) * Math.PI / 180, r1 = 58, r2 = r1 + (v ? 8 + 26 * (v / max) : 4);
     s.append(svg("line", { x1: 100 + r1 * Math.cos(a), y1: 100 + r1 * Math.sin(a), x2: 100 + r2 * Math.cos(a), y2: 100 + r2 * Math.sin(a),
@@ -431,9 +595,9 @@ function recent(items, onPick) {
   const ul = $("ul", "list plain");
   items.forEach((it, i) => {
     const li = $("li"), box = $("div", "nm"), dt = new Date(it.ts * 1000);
-    box.append(document.createTextNode(it.title), $("span", "sb", it.artist || "Unknown artist"));
+    box.append(document.createTextNode(it.title), $("span", "sb", it.artist || t("unknownArtist")));
     li.append(box, $("span", "ct", `${dateShort(dt)}, ${pad(dt.getHours())}:${pad(dt.getMinutes())}`));
-    pickable(li, `Play ${it.title}, ${it.artist || ""}`, onPick && (() => onPick(i)));
+    pickable(li, t("playItem", { title: it.title, artist: it.artist || "" }), onPick && (() => onPick(i)));
     ul.append(li);
   });
   return ul;
@@ -448,25 +612,25 @@ async function openArtist(name) {
   sheet.replaceChildren();
   showSheet();
   const head = $("div", "head"), info = $("div");
-  info.append($("div", "t", name), $("div", "a", "Songs"));
+  info.append($("div", "t", name), $("div", "a", t("songs")));
   head.append(gem(""), info);
-  const status = $("div", "status", "Finding songs…"), list = $("div", "favlist");
+  const status = $("div", "status", t("findingSongs")), list = $("div", "favlist");
   status.setAttribute("role", "status");
   sheet.append(head, status, list);
   try {
     const r = await api(`/api/artist?name=${encodeURIComponent(name)}`);
-    if (!r.items.length) { status.textContent = "No songs found for this artist."; return; }
+    if (!r.items.length) { status.textContent = t("noSongs"); return; }
     status.textContent = "";
     const songs = asTracks(r.items);
     songs.forEach((s, i) => {
       const b = $("button", "favrow"), box = $("div", "nm");
       box.append(document.createTextNode(s.title), $("span", "sb", s.artist));
       b.append(box, $("span", "ct", mmss(s.duration)));
-      b.setAttribute("aria-label", `Play ${s.title}, ${s.artist}`);
+      b.setAttribute("aria-label", t("playItem", { title: s.title, artist: s.artist }));
       b.onclick = () => startQueue(songs, mix.on, i);
       list.append(b);
     });
-  } catch (e) { status.className = "status bad"; status.textContent = "Could not load songs. Try again."; }
+  } catch (e) { status.className = "status bad"; status.textContent = t("songsFail"); }
 }
 
 function gem(url) {
@@ -478,12 +642,12 @@ function gem(url) {
 // a tap on a saved song plays it right away (the saved original, no version search), then the rest of the list
 function favList() {
   const wrap = $("div", "favlist");
-  if (!state.favs.length) { wrap.append($("p", "note", "No tracks yet.")); return wrap; }
+  if (!state.favs.length) { wrap.append($("p", "note", t("noTracks"))); return wrap; }
   state.favs.forEach((f, i) => {
     const b = $("button", "favrow"), box = $("div", "nm");
-    box.append(document.createTextNode(f.title), $("span", "sb", f.artist || "Unknown artist"));
+    box.append(document.createTextNode(f.title), $("span", "sb", f.artist || t("unknownArtist")));
     b.append(box, $("span", "ct", mmss(f.duration)));
-    b.setAttribute("aria-label", `Play ${f.title}, ${f.artist}`);
+    b.setAttribute("aria-label", t("playItem", { title: f.title, artist: f.artist }));
     b.dataset.key = f.key;
     b.onclick = () => startFavorites(mix.on, i);
     wrap.append(b);
@@ -517,7 +681,7 @@ async function toggleFav() {
     const r = await post("/api/favorites", { op: isFav(it) ? "remove" : "add", artist: it.artist, title: it.title,
       duration: it.duration || 0, cover: it.cover || "", vid: it.kind === "track" && it.url ? "track:" + it.url : "" });
     state.favs = r.favorites; renderFavs();
-  } catch (e) { player.els.msg.textContent = "Could not update favorites."; }
+  } catch (e) { player.els.msg.textContent = t("favFail"); }
   btns.forEach(b => { b.disabled = false; });
   syncStar();
 }
@@ -528,7 +692,7 @@ function syncStar() {
   if (!star) return;
   const on = !!it && isFav(it);
   star.classList.toggle("on", on); star.setAttribute("aria-pressed", on ? "true" : "false");
-  star.setAttribute("aria-label", on ? "Remove from favorites" : "Add to favorites");
+  star.setAttribute("aria-label", on ? t("favRemove") : t("favAdd"));
 }
 
 // the song that is playing stands out in the list
@@ -550,7 +714,7 @@ function fillQuick(box) {
   if (!box) return;
   box.replaceChildren();
   if (!state.favs.length) return;
-  const play = $("button", "primary", `Play favorites (${state.favs.length})`), shuffle = $("button", "textbtn", "Shuffle");
+  const play = $("button", "primary", t("playFavs", { n: state.favs.length })), shuffle = $("button", "textbtn", t("shuffle"));
   play.onclick = () => startFavorites(mix.on);
   shuffle.onclick = () => startFavorites(true);
   box.append(play, shuffle);
@@ -603,10 +767,10 @@ function toggleButton(t, name, label, changed) {
 }
 // repeat: the track that is playing starts again when it ends
 const repeat = toggle("repeatOne");
-function repeatButton() { return toggleButton(repeat, "repeat", "Repeat this track"); }
+function repeatButton() { return toggleButton(repeat, "repeat", t("repeat")); }
 // mix: favorites play in random order; switching it while music plays reorders only what comes next
 const mix = toggle("mixOn");
-function mixButton() { return toggleButton(mix, "shuffle", "Mix", remix); }
+function mixButton() { return toggleButton(mix, "shuffle", t("mix"), remix); }
 function shuffled(list) {
   const a = list.slice();
   for (let k = a.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [a[k], a[j]] = [a[j], a[k]]; }
@@ -642,13 +806,13 @@ function setVol(v) {
   for (const c of vol.ctrls) { if (c.isConnected) c.sync(); else vol.ctrls.delete(c); }  // players that were closed drop out
 }
 function volumeControl() {
-  const box = $("div", "vol"), btn = iconButton("volume", "Mute", "quiet"), line = $("div", "vline");
+  const box = $("div", "vol"), btn = iconButton("volume", t("mute"), "quiet"), line = $("div", "vline");
   const fill = $("div", "vfill"), dot = $("div", "vdot"), range = $("input", "vrange");
-  range.type = "range"; range.min = 0; range.max = 100; range.setAttribute("aria-label", "Volume");
+  range.type = "range"; range.min = 0; range.max = 100; range.setAttribute("aria-label", t("volume"));
   line.append(fill, dot, range); box.append(btn, line); box.hidden = !vol.ok;
   box.sync = () => {
     fill.style.width = dot.style.left = `${vol.v * 100}%`; range.value = Math.round(vol.v * 100);
-    btn.replaceChildren(icon(vol.v ? "volume" : "muted")); btn.setAttribute("aria-label", vol.v ? "Mute" : "Unmute");
+    btn.replaceChildren(icon(vol.v ? "volume" : "muted")); btn.setAttribute("aria-label", vol.v ? t("mute") : t("unmute"));
   };
   btn.onclick = () => setVol(vol.v ? 0 : vol.last);
   range.oninput = () => setVol(range.value / 100);
@@ -682,22 +846,22 @@ function ensurePlayerBar() {
   }
   const au = new Audio(); au.preload = "auto"; applyVol(au);
   const bar = $("div", "nowbar"), top = $("div", "nowtop"), disc = $("div", "disc"), info = $("div", "nowinfo");
-  const title = $("div", "nowt"), sub = $("div", "nows"), close = iconButton("close", "Close player", "quiet");
-  const shrink = iconButton("down", "Minimize player", "quiet"), tools = $("div", "nowtools");
-  const star = iconButton("star", "Add to favorites", "quiet fav");  // the song that is playing, from any list
+  const title = $("div", "nowt"), sub = $("div", "nows"), close = iconButton("close", t("closePlayer"), "quiet");
+  const shrink = iconButton("down", t("minPlayer"), "quiet"), tools = $("div", "nowtools");
+  const star = iconButton("star", t("favAdd"), "quiet fav");  // the song that is playing, from any list
   // minimized: a thin strip with the song, play/pause and a way back to the full player
-  const mini = $("div", "nowmini"), mline = $("div", "minline"), mplay = iconButton("play", "Play", "small");
-  const mt = $("button", "mt"), grow = iconButton("up", "Expand player", "quiet small");
+  const mini = $("div", "nowmini"), mline = $("div", "minline"), mplay = iconButton("play", t("play"), "small");
+  const mt = $("button", "mt"), grow = iconButton("up", t("expandPlayer"), "quiet small");
   const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
   const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
-  const ctrl = $("div", "ctrl"), prev = iconButton("prev", "Previous track"), main = iconButton("play", "Play", "main"), next = iconButton("next", "Next track");
+  const ctrl = $("div", "ctrl"), prev = iconButton("prev", t("prevTrack")), main = iconButton("play", t("play"), "main"), next = iconButton("next", t("nextTrack"));
   const loop = repeatButton(), mixb = mixButton();
-  const msg = $("div", "nowmsg"), hand = $("button", "textbtn", "Continue in chat");
-  range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
+  const msg = $("div", "nowmsg"), hand = $("button", "textbtn", t("handChat"));
+  range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", t("seek"));
   msg.setAttribute("role", "status");
   disc.append(discSvg()); info.append(title, sub); tools.append(star, shrink, close); top.append(disc, info, tools);
   seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(mixb, prev, main, next, loop);
-  mt.setAttribute("aria-label", "Expand player"); mini.append(mline, mplay, mt, grow);
+  mt.setAttribute("aria-label", t("expandPlayer")); mini.append(mline, mplay, mt, grow);
   bar.append(top, seek, times, ctrl, volumeControl(), msg, hand, mini);
   document.body.append(bar); document.body.classList.add("withbar");
   Object.assign(player, { bar, au, els: { title, sub, fill, dot, range, cur, dur, main, msg, hand, mt, star, prev, next } });
@@ -726,8 +890,8 @@ function ensurePlayerBar() {
     }
   };
   const state_ = on => {
-    bar.classList.toggle("playing", on); main.replaceChildren(icon(on ? "pause" : "play")); main.setAttribute("aria-label", on ? "Pause" : "Play");
-    mplay.replaceChildren(icon(on ? "pause" : "play")); mplay.setAttribute("aria-label", on ? "Pause" : "Play");
+    bar.classList.toggle("playing", on); main.replaceChildren(icon(on ? "pause" : "play")); main.setAttribute("aria-label", on ? t("pause") : t("play"));
+    mplay.replaceChildren(icon(on ? "pause" : "play")); mplay.setAttribute("aria-label", on ? t("pause") : t("play"));
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = on ? "playing" : "paused";
     syncWave();
   };
@@ -769,13 +933,13 @@ function ensurePlayerBar() {
 function setNow(it, text) {
   const e = player.els;
   e.title.textContent = it ? it.title : "";
-  e.sub.textContent = it ? `${it.artist || ""}${player.items.length > 1 && !player.wave ? `, ${player.i + 1} of ${player.items.length}` : ""}` : "";
+  e.sub.textContent = it ? `${it.artist || ""}${player.items.length > 1 && !player.wave ? `, ${t("queuePos", { i: player.i + 1, n: player.items.length })}` : ""}` : "";
   e.msg.textContent = text || "";
   e.mt.textContent = it ? `${it.artist ? it.artist + " - " : ""}${it.title}` : "";
   syncStar();
   if (it && "mediaSession" in navigator && window.MediaMetadata) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: it.title, artist: it.artist || "",
-      album: it.kind === "fav" ? "My Favorites" : "MusicBot",
+      album: it.kind === "fav" ? t("myFavorites") : "MusicBot",
       artwork: it.cover && it.cover.startsWith("https://") ? [{ src: it.cover, sizes: "512x512" }] : [] });
   }
 }
@@ -819,7 +983,7 @@ async function playAt(i, from = 0, ready = null) {
   const my = ++player.token, it = player.items[i];
   if (!it) { stopPlayer(); return; }
   player.i = i;
-  setNow(it, "Loading…");
+  setNow(it, t("loading"));
   markNow();
   try {
     const url = ready || await trackUrl(i);
@@ -831,13 +995,13 @@ async function playAt(i, from = 0, ready = null) {
     if (sheetAu) sheetAu.pause();
     let blocked = false;
     await player.au.play().catch(() => { blocked = true; });  // a page opened by the bot may need one tap before sound is allowed
-    setNow(it, blocked ? "Tap play to start." : "");
+    setNow(it, blocked ? t("tapPlay") : "");
     if (player.wave) { prefetchAhead(i); if (i >= player.items.length - WAVE_AHEAD - 1) extendWave(); }
     else if (i + 1 < player.items.length) warm(i + 1, false);  // get the next track ready while this one plays
   } catch (e) {
     if (my !== player.token) return;
     delete player.cache[i];
-    setNow(it, "Could not load this track. Skipping…");
+    setNow(it, t("trackFail"));
     setTimeout(() => { if (my === player.token) playAt(i + 1); }, 1500);
   }
 }
@@ -919,7 +1083,7 @@ async function resumeWave() {
   s.wave.busy = false;
   if (sheetOpen) closeSheet();
   ensurePlayerBar();
-  player.els.hand.textContent = "Save file or send to chat";
+  player.els.hand.textContent = t("handFile");
   player.au.src = SILENT; player.au.play().catch(() => {});
   if (tg && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
   await playAt(s.i, s.pos, s.blobUrl);
@@ -937,13 +1101,13 @@ async function extendWave() {
 let waveStarting = false;
 async function startWave() {
   if (waveStarting) return;
-  waveStarting = true; wv.note = "Tuning your wave…"; syncWave();
+  waveStarting = true; wv.note = t("waveTuning"); syncWave();
   const w = { seen: new Set(), skipped: new Set(), busy: false, active: 0, want: [] };
   try {
     const first = await fetchWave(w, 4);  // a short first batch: the music starts sooner, the next one loads while it plays
     wv.note = "";
-    if (first.length) startQueue(first, false, 0, w); else wv.note = "Nothing to play yet.";
-  } catch (e) { wv.note = "The wave is unavailable. Try again."; }
+    if (first.length) startQueue(first, false, 0, w); else wv.note = t("waveNothing");
+  } catch (e) { wv.note = t("waveDown"); }
   waveStarting = false; syncWave();
   if (wv.note) setTimeout(() => { wv.note = ""; syncWave(); }, 4000);
 }
@@ -952,17 +1116,17 @@ async function startWave() {
 const wv = { note: "", drag: false };
 function wavePage() {
   const page = $("section", "wavepage"), cover = $("div", "gem cut8 wgem"), inner = $("div", "cut8"), img = $("img"), row = $("div", "wrow"), card = $("div", "wcard");
-  const dis = iconButton("dislike", "Not for me: skip and play less of this artist", "wround");
-  const pill = $("div", "wpill"), like = iconButton("star", "Add to favorites", "wround");
-  const ctrl = $("div", "wctrl"), prev = iconButton("prev", "Previous track", "wsk"), play = $("button", "wplay");
-  const next = iconButton("next", "Next track", "wsk"), prog = $("div", "wprog"), fill = $("div", "wfill"), dot = $("div", "wdot"), why = $("p", "wwhy");
+  const dis = iconButton("dislike", t("waveDislike"), "wround");
+  const pill = $("div", "wpill"), like = iconButton("star", t("favAdd"), "wround");
+  const ctrl = $("div", "wctrl"), prev = iconButton("prev", t("prevTrack"), "wsk"), play = $("button", "wplay");
+  const next = iconButton("next", t("nextTrack"), "wsk"), prog = $("div", "wprog"), fill = $("div", "wfill"), dot = $("div", "wdot"), why = $("p", "wwhy");
   const range = $("input", "wrange"), times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
-  range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
+  range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", t("seek"));
   range.oninput = () => { const au = player.au; if (au && au.duration) au.currentTime = au.duration * range.value / 1000; };
   times.append(cur, dur);
   img.alt = ""; inner.append(img); cover.append(inner); prog.append(fill, dot, range); row.append(dis, pill, like); ctrl.append(prev, play, next);
   card.append(row, ctrl, prog, times, volumeControl(), why);
-  page.append($("h1", "wavetitle", "My Wave"), cover, card);
+  page.append($("h1", "wavetitle", t("myWave")), cover, card);
   why.setAttribute("role", "status");
   const live = () => !!player.wave && !!player.bar && !player.bar.hidden;
   play.onclick = () => { if (live()) player.els.main.onclick(); else if (waveSaved) resumeWave(); else startWave(); };
@@ -994,11 +1158,11 @@ function syncWave() {
   if (!wv.page || !wv.page.isConnected) return;
   const sv = !on ? waveSaved : null;  // another queue has the player: show where the wave stopped
   const it = on ? player.items[player.i] : sv ? sv.items[sv.i] : null, playing = on && !player.au.paused;
-  wv.pill.textContent = it ? `${it.artist ? it.artist + " — " : ""}${it.title}` : wv.note ? "" : "Tap play to start";
+  wv.pill.textContent = it ? `${it.artist ? it.artist + " — " : ""}${it.title}` : wv.note ? "" : t("waveTapPlay");
   // the song's cover; before the first song, and for songs without one, your own photo (like the profile)
   const pic = it && it.cover && it.cover.startsWith("https://") ? it.cover : state.avatar || "/static/Diamond.jpg";
   if (wv.img.getAttribute("src") !== pic) wv.img.src = pic;
-  wv.play.replaceChildren(icon(playing ? "pause" : "play")); wv.play.setAttribute("aria-label", playing ? "Pause" : "Play My Wave");
+  wv.play.replaceChildren(icon(playing ? "pause" : "play")); wv.play.setAttribute("aria-label", playing ? t("pause") : t("playWave"));
   wv.play.disabled = waveStarting;
   [wv.prev, wv.next, wv.dis, wv.like, wv.range].forEach(b => { b.disabled = !on; });
   if (!on) {
@@ -1007,21 +1171,21 @@ function syncWave() {
     wv.cur.textContent = tm(sv ? sv.pos : 0); wv.dur.textContent = sv && sv.dur ? tm(sv.dur) : "";
   }
   const fav = !!it && isFav(it);
-  wv.like.classList.toggle("on", fav); wv.like.setAttribute("aria-label", fav ? "Remove from favorites" : "Add to favorites");
+  wv.like.classList.toggle("on", fav); wv.like.setAttribute("aria-label", fav ? t("favRemove") : t("favAdd"));
   const msg = on ? player.els.msg.textContent : "";
-  wv.why.textContent = wv.note || msg || (sv ? "Paused. Tap play to go on." : it && it.because && it.because !== it.artist ? `Because you like ${it.because}` : it ? "" : "Music by your taste, non-stop");
+  wv.why.textContent = wv.note || msg || (sv ? t("wavePaused") : it && it.because && it.because !== it.artist ? t("because", { name: it.because }) : it ? "" : t("waveIdle"));
 }
 
 // bottom tabs: Wave (home), Favorites, Stats, Discover
-const TABS = [["wave", "Wave"], ["favs", "Favorites"], ["stats", "Stats"], ["discover", "Discover"]];
+const TABS = [["wave", "tabWave"], ["favs", "tabFavs"], ["stats", "tabStats"], ["discover", "tabDiscover"]];
 state.tab = "wave";
 try { const t = localStorage.getItem("tab"); if (TABS.some(x => x[0] === t)) state.tab = t; } catch (e) {}
 function tabbar() {
   const nav = $("nav", "tabbar");
-  nav.setAttribute("aria-label", "Pages");
+  nav.setAttribute("aria-label", t("pages"));
   for (const [key, label] of TABS) {
     const b = $("button", "tab"); b.dataset.tab = key;
-    b.append(icon(key === "favs" ? "star" : key), $("span", null, label));
+    b.append(icon(key === "favs" ? "star" : key), $("span", null, t(label)));
     b.onclick = () => setTab(key);
     nav.append(b);
   }
@@ -1054,7 +1218,7 @@ function startQueue(list, shuffle, start = null, wave = null) {
   if (sheetOpen) closeSheet();  // a track sheet must not keep its own player going over the queue
   ensurePlayerBar();
   // favorites can be handed to the chat as a queue; any other song opens its sheet (versions, save file, send to chat)
-  player.els.hand.textContent = list[0].kind === "fav" ? "Continue in chat" : "Save file or send to chat";
+  player.els.hand.textContent = handLabel(list[0]);
   player.au.src = SILENT; player.au.play().catch(() => {});  // the tap unlocks audio, so the next tracks can start by themselves
   // closing the page ends playback, so ask before it closes while music is on
   if (tg && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
@@ -1065,12 +1229,12 @@ function startQueue(list, shuffle, start = null, wave = null) {
 async function handOff() {
   const e = player.els, start = Math.max(0, player.i), rest = player.items.slice(start, start + 10);
   if (!rest.length) return;
-  e.hand.disabled = true; e.msg.textContent = "Sending to chat…";
+  e.hand.disabled = true; e.msg.textContent = t("sendingChat");
   try {
     const r = await post("/api/handoff", { items: rest.map(x => ({ artist: x.artist, title: x.title })) });
     player.au.pause();
-    e.msg.textContent = `${r.sent} ${plural(r.sent, "track", "tracks")} sent to chat. Tap the first one there and it keeps playing after you close the app.`;
-  } catch (err) { e.msg.textContent = "Could not send to chat."; }
+    e.msg.textContent = tn("sentChat", r.sent);
+  } catch (err) { e.msg.textContent = t("sendChatFail"); }
   e.hand.disabled = false;
 }
 
@@ -1111,7 +1275,7 @@ function resizeImage(file, max) {
 
 /* окно трека */
 const shade = $("div", "shade"), sheet = $("div", "sheet");
-sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); sheet.setAttribute("aria-label", "Track");
+sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true"); sheet.setAttribute("aria-label", t("trackAria"));
 document.body.append(shade, sheet);
 shade.onclick = () => closeSheet();
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
@@ -1155,10 +1319,10 @@ function miniPlayer(src, refresh) {
   au.addEventListener("playing", () => { started = true; });
   au.addEventListener("pause", () => { pausedAt = Date.now(); });
   au.addEventListener("error", () => { if (started) heal(); });  // before the first sound the caller's own fallback handles errors
-  const box = $("div", "mini"), disc = $("div", "disc"), mid = $("div"), main = iconButton("play", "Play", "main"), loop = repeatButton();
+  const box = $("div", "mini"), disc = $("div", "disc"), mid = $("div"), main = iconButton("play", t("play"), "main"), loop = repeatButton();
   const seek = $("div", "seek"), fill = $("div", "seekfill"), dot = $("div", "seekdot"), range = $("input", "seekin");
   const times = $("div", "times"), cur = $("span", null, "0:00"), dur = $("span", null, "");
-  range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", "Seek");
+  range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", t("seek"));
   disc.append(discSvg()); seek.append(fill, dot, range); times.append(cur, dur); mid.append(seek, times, volumeControl());
   box.append(disc, mid, loop, main);
   const shown = () => {
@@ -1166,7 +1330,7 @@ function miniPlayer(src, refresh) {
     fill.style.width = dot.style.left = `${p * 100}%`;
     range.value = Math.round(p * 1000); cur.textContent = tm(au.currentTime); dur.textContent = au.duration ? tm(au.duration) : "";
   };
-  const on = v => { box.classList.toggle("playing", v); main.replaceChildren(icon(v ? "pause" : "play")); main.setAttribute("aria-label", v ? "Pause" : "Play"); };
+  const on = v => { box.classList.toggle("playing", v); main.replaceChildren(icon(v ? "pause" : "play")); main.setAttribute("aria-label", v ? t("pause") : t("play")); };
   au.addEventListener("timeupdate", shown); au.addEventListener("durationchange", shown);
   au.addEventListener("play", () => { on(true); if (player.au && player.au !== au) player.au.pause(); });  // one sound at a time
   au.addEventListener("pause", () => on(false)); au.addEventListener("ended", () => { au.currentTime = 0; if (repeat.on) au.play().catch(() => {}); else on(false); });
@@ -1184,13 +1348,13 @@ async function openTrack(rec) {
   showSheet();
   const head = $("div", "head"), info = $("div");
   info.append($("div", "t", rec.title), $("div", "a", rec.artist));
-  if (rec.because) info.append($("div", "why", `Because you listen to ${rec.because}`));
+  if (rec.because) info.append($("div", "why", t("becauseListen", { name: rec.because })));
   head.append(gem(rec.cover), info);
-  const status = $("div", "status", "Finding versions…"); status.setAttribute("role", "status");
+  const status = $("div", "status", t("findingVersions")); status.setAttribute("role", "status");
   const list = $("ul", "vers"), slot = $("div");
   if (sheetAu) { sheetAu.pause(); sheetAu = null; }
-  const play = $("button", "primary", "Play"), alt = $("div", "alt");
-  const save = $("button", null, "Save file"), chat = $("button", null, "Send to chat");
+  const play = $("button", "primary", t("play")), alt = $("div", "alt");
+  const save = $("button", null, t("saveFile")), chat = $("button", null, t("sendChat"));
   alt.append(save, chat);
   [play, save, chat].forEach(b => b.disabled = true);
   sheet.append(head, status, list, slot, play, alt);
@@ -1198,13 +1362,13 @@ async function openTrack(rec) {
   let current = null, busy = false;
   const setStatus = (t, cls) => { status.className = "status" + (cls ? " " + cls : ""); status.textContent = t; };
   const lock = on => { busy = on; [play, save, chat].forEach(b => b.disabled = on || !current); };
-  const getFile = () => { setStatus("Downloading…"); return post("/api/fetch", { vid: current.vid, mode: "file" }); };
+  const getFile = () => { setStatus(t("downloading")); return post("/api/fetch", { vid: current.vid, mode: "file" }); };
   const again = async () => {  // the same version once more: its link expired while the song was paused
     try { const f = await getFile(); setStatus(""); return f.url; } catch (e) { failed(); throw e; }
   };
-  const failed = () => setStatus("Download failed. Try another version.", "bad");
+  const failed = () => setStatus(t("dlFail"), "bad");
 
-  const favLabel = () => isFav(rec) ? "Remove from favorites" : "Add to favorites";
+  const favLabel = () => isFav(rec) ? t("favRemove") : t("favAdd");
   const fav = $("button", "textbtn", favLabel());
   sheet.append(fav);
   fav.onclick = async () => {
@@ -1213,7 +1377,7 @@ async function openTrack(rec) {
       const r = await post("/api/favorites", { op: isFav(rec) ? "remove" : "add", artist: rec.artist, title: rec.title,
         duration: rec.duration || 0, cover: rec.cover || "", vid: current ? current.vid : "" });
       state.favs = r.favorites; fav.textContent = favLabel(); renderFavs();
-    } catch (e) { setStatus("Could not update favorites.", "bad"); }
+    } catch (e) { setStatus(t("favFail"), "bad"); }
     fav.disabled = false;
   };
 
@@ -1225,25 +1389,25 @@ async function openTrack(rec) {
       // if this WebView cannot play the stream, fall back to the whole file
       slot.replaceChildren();
       const mp = miniPlayer(current.stream, again), v = current; sheetAu = mp.au; slot.append(mp.box);
-      setStatus("Loading…");
+      setStatus(t("loading"));
       let started = false, fellBack = false, blocked = false;
       const fallback = async () => {
         if (started || fellBack || blocked || current !== v || sheetAu !== mp.au) return;
         fellBack = true; clearTimeout(stall);
         lock(true);
-        try { const f = await getFile(); mp.au.src = f.url; setStatus("Ready.", "ok"); mp.au.play().catch(() => setStatus("Press play to start.", "ok")); }
+        try { const f = await getFile(); mp.au.src = f.url; setStatus(t("ready"), "ok"); mp.au.play().catch(() => setStatus(t("pressPlay"), "ok")); }
         catch (e) { failed(); }
         lock(false);
       };
       // some WebViews neither play nor report an error on a stream; do not leave "Loading…" up forever
       let stall = setTimeout(fallback, 7000);
       mp.au.addEventListener("play", () => {  // the user pressed play after autoplay was blocked: watch the stream again
-        if (blocked && !started) { blocked = false; setStatus("Loading…"); stall = setTimeout(fallback, 7000); }
+        if (blocked && !started) { blocked = false; setStatus(t("loading")); stall = setTimeout(fallback, 7000); }
       });
       mp.au.addEventListener("playing", () => { started = true; clearTimeout(stall); setStatus(""); }, { once: true });
       mp.au.addEventListener("error", fallback, { once: true });
       mp.au.play().catch(e => {
-        if (e && e.name === "NotAllowedError") { blocked = true; clearTimeout(stall); setStatus("Press play to start.", "ok"); }
+        if (e && e.name === "NotAllowedError") { blocked = true; clearTimeout(stall); setStatus(t("pressPlay"), "ok"); }
       });
       return;
     }
@@ -1252,8 +1416,8 @@ async function openTrack(rec) {
       const f = await getFile();
       slot.replaceChildren();
       const mp = miniPlayer(f.url, again); sheetAu = mp.au; slot.append(mp.box);
-      setStatus("Ready.", "ok");
-      mp.au.play().catch(() => setStatus("Press play to start.", "ok"));
+      setStatus(t("ready"), "ok");
+      mp.au.play().catch(() => setStatus(t("pressPlay"), "ok"));
     } catch (e) { failed(); }
     lock(false);
   };
@@ -1262,15 +1426,15 @@ async function openTrack(rec) {
     try {
       const f = await getFile();
       const url = location.origin + f.url, name = `${f.artist ? f.artist + " - " : ""}${f.title}.${f.ext}`;
-      if (tg && tg.isVersionAtLeast && tg.isVersionAtLeast("8.0") && tg.downloadFile) { tg.downloadFile({ url, file_name: name }); setStatus("Download started.", "ok"); }
-      else if (tg) { tg.openLink(url); setStatus("Opening file in browser.", "ok"); }
-      else { window.open(url, "_blank"); setStatus("Opening file.", "ok"); }
+      if (tg && tg.isVersionAtLeast && tg.isVersionAtLeast("8.0") && tg.downloadFile) { tg.downloadFile({ url, file_name: name }); setStatus(t("dlStarted"), "ok"); }
+      else if (tg) { tg.openLink(url); setStatus(t("openingBrowser"), "ok"); }
+      else { window.open(url, "_blank"); setStatus(t("openingFile"), "ok"); }
     } catch (e) { failed(); }
     lock(false);
   };
   chat.onclick = async () => {
-    if (busy) return; lock(true); setStatus("Sending…");
-    try { await post("/api/fetch", { vid: current.vid, mode: "chat" }); setStatus("Sent to chat.", "ok"); }
+    if (busy) return; lock(true); setStatus(t("sending"));
+    try { await post("/api/fetch", { vid: current.vid, mode: "chat" }); setStatus(t("sentToChat"), "ok"); }
     catch (e) { failed(); }
     lock(false);
   };
@@ -1284,7 +1448,7 @@ async function openTrack(rec) {
 
   try {
     const r = await post("/api/resolve", { artist: rec.artist, title: rec.title, duration: rec.duration || 0 });
-    if (!r.items.length) { setStatus("No source found for this track.", "bad"); return; }
+    if (!r.items.length) { setStatus(t("noSource"), "bad"); return; }
     setStatus("");
     list.setAttribute("role", "radiogroup");
     r.items.forEach((v, i) => {
@@ -1297,7 +1461,7 @@ async function openTrack(rec) {
       list.append(row);
       if (i === 0) select(v, row);
     });
-  } catch (e) { setStatus("Could not load versions. Try again.", "bad"); }
+  } catch (e) { setStatus(t("versionsFail"), "bad"); }
 }
 
 // a recommendation plays at once in the bottom player, then the next ones (like favorites)
@@ -1319,19 +1483,19 @@ function openProfile() {
   showSheet();
   const head = $("div", "head"), info = $("div"), g =$("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
   img.alt = ""; img.src = state.avatar || "/static/Diamond.jpg"; inner.append(img); g.append(inner);
-  info.append($("div", "t", "Profile"));
+  info.append($("div", "t", t("profile")));
   head.append(g, info);
   const file = $("input"); file.type = "file"; file.accept = "image/*,.heic,.heif,.avif,.webp,.bmp,.gif,.tif,.tiff"; file.hidden = true;
-  const change = $("button", "textbtn", "Change photo");
+  const change = $("button", "textbtn", t("changePhoto"));
   const bgFile = $("input"); bgFile.type = "file"; bgFile.accept = file.accept; bgFile.hidden = true;
-  const bgChange = $("button", "textbtn", "Change background"), bgReset = $("button", "textbtn", "Reset background");
+  const bgChange = $("button", "textbtn", t("changeBg")), bgReset = $("button", "textbtn", t("resetBg"));
   bgReset.hidden = !state.bg;
-  const label = $("label", "fld-label", "Name");
+  const label = $("label", "fld-label", t("name"));
   const input = $("input", "field"); input.type = "text"; input.maxLength = 30; input.value = state.name; input.autocomplete = "off";
   input.id = "profile-name"; label.htmlFor = input.id;
   const status = $("div", "status"); status.setAttribute("role", "status");
-  const save = $("button", "primary", "Save");
-  sheet.append(head, change, file, bgChange, bgReset, bgFile, label, input, status, save);
+  const save = $("button", "primary", t("save"));
+  sheet.append(head, langSwitch(() => { if (state.name) render(); openProfile(); }), change, file, bgChange, bgReset, bgFile, label, input, status, save);
   const setStatus = (t, cls) => { status.className = "status" + (cls ? " " + cls : ""); status.textContent = t; };
 
   // the big picture behind the page: any image, cropped to fit the screen
@@ -1344,44 +1508,44 @@ function openProfile() {
   bgChange.onclick = () => bgFile.click();
   bgFile.onchange = async () => {
     const f = bgFile.files[0]; if (!f) return;
-    bgChange.disabled = true; setStatus("Uploading background…");
+    bgChange.disabled = true; setStatus(t("uploadingBg"));
     try {
       const blob = await resizeImage(f, 1600);
-      if (blob.size > 20 * 1024 * 1024) setStatus("This file is too large.", "bad");
-      else { await sendBg(blob); setStatus("Background updated.", "ok"); }
-    } catch (e) { setStatus("Could not upload the background.", "bad"); }
+      if (blob.size > 20 * 1024 * 1024) setStatus(t("tooLarge"), "bad");
+      else { await sendBg(blob); setStatus(t("bgUpdated"), "ok"); }
+    } catch (e) { setStatus(t("bgUploadFail"), "bad"); }
     bgChange.disabled = false; bgFile.value = "";
   };
   bgReset.onclick = async () => {
     bgReset.disabled = true;
-    try { await sendBg(new Blob([])); setStatus("Background reset.", "ok"); }
-    catch (e) { setStatus("Could not reset the background.", "bad"); }
+    try { await sendBg(new Blob([])); setStatus(t("bgReset"), "ok"); }
+    catch (e) { setStatus(t("bgResetFail"), "bad"); }
     bgReset.disabled = false;
   };
 
   change.onclick = () => file.click();
   file.onchange = async () => {
     const f = file.files[0]; if (!f) return;
-    change.disabled = true; setStatus("Uploading photo…");
+    change.disabled = true; setStatus(t("uploadingPhoto"));
     try {
       const blob = await resizeImage(f, 384);
-      if (blob.size > 20 * 1024 * 1024) { setStatus("This file is too large.", "bad"); change.disabled = false; file.value = ""; return; }
+      if (blob.size > 20 * 1024 * 1024) { setStatus(t("tooLarge"), "bad"); change.disabled = false; file.value = ""; return; }
       const r = await fetch("/api/avatar", { method: "POST", body: blob,
         headers: { "X-Init-Data": tg ? tg.initData : "", "Content-Type": "application/octet-stream" } });
       if (!r.ok) throw new Error(r.status);
       state.avatar = (await r.json()).avatar;
       img.src = state.avatar;
       document.querySelectorAll(".avatar img").forEach(i => { i.src = state.avatar; });
-      setStatus("Photo updated.", "ok");
-    } catch (e) { setStatus("Could not upload the photo.", "bad"); }
+      setStatus(t("photoUpdated"), "ok");
+    } catch (e) { setStatus(t("photoFail"), "bad"); }
     change.disabled = false; file.value = "";
   };
   const submit = async () => {
     const name = input.value.trim();
-    if (!name) { setStatus("Enter a name.", "bad"); return; }
+    if (!name) { setStatus(t("enterName"), "bad"); return; }
     save.disabled = true;
     try { await post("/api/profile", { name }); state.name = name; render(); closeSheet(); }
-    catch (e) { setStatus("Could not save. Try again.", "bad"); }
+    catch (e) { setStatus(t("saveFail"), "bad"); }
     save.disabled = false;
   };
   save.onclick = submit;
@@ -1390,17 +1554,17 @@ function openProfile() {
 
 // first launch: ask for a name
 function welcome() {
-  const box = $("div", "welcome"), input = $("input", "field"), status = $("div", "status"), go = $("button", "primary", "Continue");
-  input.type = "text"; input.maxLength = 30; input.autocomplete = "off"; input.placeholder = state.tgName || "Name"; input.id = "welcome-name";
-  const label = $("label", "fld-label", "What should we call you?"); label.htmlFor = input.id;
+  const box = $("div", "welcome"), input = $("input", "field"), status = $("div", "status"), go = $("button", "primary", t("cont"));
+  input.type = "text"; input.maxLength = 30; input.autocomplete = "off"; input.placeholder = state.tgName || t("name"); input.id = "welcome-name";
+  const label = $("label", "fld-label", t("whatCall")); label.htmlFor = input.id;
   status.setAttribute("role", "status");
-  box.append($("h1", null, "Welcome"), label, input, status, go);
+  box.append($("h1", null, t("welcome")), langSwitch(welcome), label, input, status, go);
   const submit = async () => {
     const name = input.value.trim();
-    if (!name) { status.className = "status bad"; status.textContent = "Enter a name."; return; }
+    if (!name) { status.className = "status bad"; status.textContent = t("enterName"); return; }
     go.disabled = true;
     try { await post("/api/profile", { name }); state.name = name; render(); maybeAutoplay(); }
-    catch (e) { status.className = "status bad"; status.textContent = "Could not save. Try again."; go.disabled = false; }
+    catch (e) { status.className = "status bad"; status.textContent = t("saveFail"); go.disabled = false; }
   };
   go.onclick = submit;
   input.onkeydown = e => { if (e.key === "Enter") submit(); };
@@ -1413,25 +1577,25 @@ function statsPage(d) {
   page.append(letter(d));
   if (d.total) {
     page.append(
-      section("Activity", null, daysGrid(d.days)),
-      section("Listening hours", null, clock(d.hours)));
-    if (d.top_artists.length) page.append(section("Top artists", null,
+      section(t("secActivity"), null, daysGrid(d.days)),
+      section(t("secHours"), null, clock(d.hours)));
+    if (d.top_artists.length) page.append(section(t("secArtists"), null,
       ranked(d.top_artists, x => x.artist, x => hoursText(x.seconds), x => tracks(x.plays),
-        i => openArtist(d.top_artists[i].artist), x => `Songs by ${x.artist}`)));
-    if (d.top_tracks.length) page.append(section("Top tracks", null,
-      ranked(d.top_tracks, x => x.title, x => x.artist, x => `${x.plays} ${plural(x.plays, "play", "plays")}`,
-        i => startQueue(asTracks(d.top_tracks), mix.on, i), x => `Play ${x.title}, ${x.artist}`)));
-    page.append(section("Recent", null, recent(d.recent, i => startQueue(asTracks(d.recent), mix.on, i))));
+        i => openArtist(d.top_artists[i].artist), x => t("songsBy", { artist: x.artist }))));
+    if (d.top_tracks.length) page.append(section(t("secTracks"), null,
+      ranked(d.top_tracks, x => x.title, x => x.artist, x => tn("nPlays", x.plays),
+        i => startQueue(asTracks(d.top_tracks), mix.on, i), x => t("playItem", { title: x.title, artist: x.artist }))));
+    page.append(section(t("secRecent"), null, recent(d.recent, i => startQueue(asTracks(d.recent), mix.on, i))));
   }
   return page;
 }
 
 function discoverPage(d) {
   const page = document.createDocumentFragment();
-  page.append($("h1", "pagetitle", "Discover"));
-  if (!state.recsLoaded) page.append($("p", "note", "Finding songs for you…"));
-  else if (!state.recs.length) page.append($("p", "note", "No recommendations right now."));
-  else page.append($("p", "note", d.total ? "Similar to what you listen to." : "Popular right now."), gifts(state.recs));
+  page.append($("h1", "pagetitle", t("discover")));
+  if (!state.recsLoaded) page.append($("p", "note", t("findingForYou")));
+  else if (!state.recs.length) page.append($("p", "note", t("noRecs")));
+  else page.append($("p", "note", d.total ? t("similar") : t("popular")), gifts(state.recs));
   return page;
 }
 
@@ -1442,7 +1606,7 @@ function render() {
     if (b.dataset.tab === state.tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
   if (state.tab === "wave") page.append(wavePage());
-  else if (state.tab === "favs") page.append($("h1", "pagetitle", "My Favorites"), quickBox(), favBox());
+  else if (state.tab === "favs") page.append($("h1", "pagetitle", t("myFavorites")), quickBox(), favBox());
   else if (state.tab === "stats") page.append(statsPage(d));
   else page.append(discoverPage(d));
   root.replaceChildren(page);
@@ -1451,9 +1615,12 @@ function render() {
 }
 
 async function main() {
+  applyLang();
+  document.getElementById("app").replaceChildren($("div", "empty", t("loading")));
   document.body.prepend(backdrop());
   try { state.d = await api("/api/dashboard"); }
-  catch (e) { document.getElementById("app").replaceChildren($("div", "err", "Open this page from the Telegram bot.")); return; }
+  catch (e) { document.getElementById("app").replaceChildren($("div", "err", t("openFromBot"))); return; }
+  if (LANGS[state.d.profile.lang]) { LANG = state.d.profile.lang; applyLang(); }
   state.name = state.d.profile.name;
   state.tgName = state.d.profile.tg_name;
   state.avatar = state.d.profile.avatar;
