@@ -130,3 +130,90 @@ def test_famous_artist_is_found_even_if_her_song_is_not_the_first_track(monkeypa
     name, songs = deezer_artist("aurora")
     assert name == "AURORA"
     assert [c.title for c in songs] == ["Runaway", "The Seed"]
+
+
+def song_by(title, artist, artist_id, **kw):
+    t = track(title, artist, **kw)
+    t["artist"]["id"] = artist_id
+    return t
+
+
+BEATLES = [{"id": 1, "name": "Beat-les", "nb_fan": 22}, {"id": 2, "name": "The Beatles", "nb_fan": 8_148_155}]
+
+
+def test_artist_is_found_without_the_article(monkeypatch):
+    # «beatles» совпадало только с безвестным «Beat-les»: «The Beatles» отсекалось нечётким сравнением из-за «the»
+    fake_deezer(
+        monkeypatch,
+        artists=BEATLES,
+        tracks=[song_by("Let It Be", "The Beatles", 2)],
+        top=[track("Hey Jude", "The Beatles")],
+    )
+    name, songs = deezer_artist("beatles")
+    assert name == "The Beatles"
+    assert songs[0].title == "Hey Jude"
+
+
+@pytest.mark.parametrize("query", ["the beatles", "beatls", "the beatls"])
+def test_artist_with_the_or_a_typo_is_found_when_deezer_puts_it_first(monkeypatch, query):
+    fake_deezer(
+        monkeypatch,
+        artists=BEATLES[::-1],
+        tracks=[song_by("Black Beatles", "Rae Sremmurd", 8)],
+        top=[track("Hey Jude", "The Beatles")],
+    )
+    assert deezer_artist(query)[0] == "The Beatles"
+
+
+def test_famous_artist_wins_over_a_small_namesake_without_the(monkeypatch):
+    fake_deezer(
+        monkeypatch,
+        artists=[{"id": 1, "name": "Weeknd", "nb_fan": 2_100}, {"id": 2, "name": "The Weeknd", "nb_fan": 14_745_145}],
+        tracks=[song_by("Blinding Lights", "The Weeknd", 2)],
+        top=[track("Starboy", "The Weeknd")],
+    )
+    assert deezer_artist("weeknd")[0] == "The Weeknd"
+
+
+@pytest.mark.parametrize("query", ["animals", "police", "door", "killer"])
+def test_single_word_song_title_does_not_open_a_the_band(monkeypatch, query):
+    # у «The Animals» / «The Police» / «The Doors» песни не в первых треках по запросу: ищут одноимённую песню
+    band = {"The Animals": 1, "The Police": 2, "The Doors": 3, "The Killers": 4}
+    name = {"animals": "The Animals", "police": "The Police", "door": "The Doors", "killer": "The Killers"}[query]
+    fake_deezer(
+        monkeypatch,
+        artists=[{"id": 99, "name": query.title(), "nb_fan": 40}, {"id": band[name], "name": name, "nb_fan": 900_000}],
+        tracks=[song_by(query.title(), "Someone Else", 77)],
+        top=[track("Hit", name)],
+    )
+    assert deezer_artist(query) is None
+
+
+@pytest.mark.parametrize(
+    ("query", "catalog_name"),
+    [
+        ("a ha", "a-ha"),
+        ("simon and garfunkel", "Simon & Garfunkel"),
+        ("acdc", "AC/DC"),
+        ("guns n’ roses", "Guns N' Roses"),
+    ],
+)
+def test_spacing_and_and_do_not_hide_the_artist(monkeypatch, query, catalog_name):
+    fake_deezer(
+        monkeypatch,
+        artists=[{"id": 1, "name": catalog_name, "nb_fan": 1_178_956}],
+        tracks=[],
+        top=[track("Take On Me", catalog_name)],
+    )
+    assert deezer_artist(query)[0] == catalog_name
+
+
+def test_song_with_an_article_stays_a_song(monkeypatch):
+    # «the scientist» — песня Coldplay; безвестный «Scientist» после отбрасывания «the» не должен её перекрыть
+    fake_deezer(
+        monkeypatch,
+        artists=[{"id": 1, "name": "The Scientist", "nb_fan": 3_794}, {"id": 2, "name": "Scientist", "nb_fan": 4_438}],
+        tracks=[track("The Scientist", "Coldplay", rank=950_000)],
+        top=[track("Dub", "Scientist")],
+    )
+    assert deezer_artist("the scientist") is None

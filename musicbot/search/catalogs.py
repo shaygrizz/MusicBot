@@ -50,6 +50,23 @@ SONG_OVER_ARTIST_FANS = 200_000  # у исполнителя с таким им�
 SONG_MIN_RANK = 500_000  # и рейтинг песни в Deezer не ниже этого
 
 
+_ARTICLE_RE = re.compile(r"^(?:the|a|an)\s+", re.I)
+_AND_RE = re.compile(r"\s+(?:and|n['’‘`]?|&)\s+", re.I)
+
+
+def name_keys(name: str) -> set[str]:
+    """Ключи для сравнения имён исполнителей: как есть и без артикля в начале («beatles» ~ «The Beatles»),
+    «and», «&» и «n» между словами не считаются («Simon and Garfunkel» ~ «Simon & Garfunkel»).
+    «a ha» даёт «aha» и «ha», а «a-ha» остаётся «aha»: общий ключ находится."""
+    keys = set()
+    for s in (name.strip(), _AND_RE.sub(" ", name.strip())):
+        keys.add(norm(s))
+        bare = norm(_ARTICLE_RE.sub("", s))
+        if len(bare) >= 2:
+            keys.add(bare)
+    return keys - {""}
+
+
 def _artist_info(artist_id: int) -> dict | None:
     try:
         found = get_json(f"https://api.deezer.com/artist/{artist_id}")
@@ -75,7 +92,18 @@ def deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
             tracks = f_track.result().get("data", [])
         except Exception:
             tracks = []
-    exact = [a for a in data.get("data", []) if norm(a["name"]) == name_q]
+    q_keys = name_keys(plain)
+    found = data.get("data", [])
+    # имя без «the» или с «and» вместо «&» принимаем, только если Deezer сам связывает исполнителя с запросом
+    # (он первый в поиске исполнителей или его песни в первых треках): иначе «animals», «police», «door» —
+    # названия песен — открыли бы The Animals, The Police, The Doors
+    close = {t.get("artist", {}).get("id") for t in tracks[:4]} | {found[0].get("id") if found else None}
+
+    def trusted(a: dict) -> bool:
+        n = norm(a["name"])
+        return n == name_q or SequenceMatcher(None, n, name_q).ratio() >= FUZZY_ARTIST_RATIO or a.get("id") in close
+
+    exact = [a for a in found if name_keys(a["name"]) & q_keys]
     # поиск исполнителей Deezer иногда не показывает самого известного: по «aurora» — десять безвестных Aurora,
     # а AURORA (Runaway) нет. Зато её песни есть среди треков по запросу (какие именно — зависит от страны сервера),
     # поэтому исполнителей с точно таким именем из первых треков тоже берём в кандидаты
@@ -83,7 +111,7 @@ def deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
     leads = []
     for t in tracks:
         a = t.get("artist") or {}
-        if a.get("id") and a["id"] not in known and norm(a.get("name", "")) == name_q:
+        if a.get("id") and a["id"] not in known and name_keys(a.get("name", "")) & q_keys:
             known.add(a["id"])
             leads.append(a["id"])
     if leads:
@@ -91,15 +119,18 @@ def deezer_artist(q: str, n: int = 12) -> tuple[str, list[Canon]] | None:
             for found in ex.map(_artist_info, leads[:3]):
                 if found:
                     exact.append(found)
+    exact = [a for a in exact if trusted(a)]
     if not any((a.get("nb_fan") or 0) >= FUZZY_ARTIST_FANS for a in exact):
         # опечатка в имени («kendric lamar», «eminm»): Deezer её прощает, берём похожее имя, но только у заметных исполнителей —
         # иначе песня с похожим названием сошла бы за исполнителя. Пустые исполнители-двойники («Travis Scot») не мешают
         exact += [
             a
-            for a in data.get("data", [])
+            for a in found
             if a not in exact
             and (a.get("nb_fan") or 0) >= FUZZY_ARTIST_FANS
-            and SequenceMatcher(None, norm(a["name"]), name_q).ratio() >= FUZZY_ARTIST_RATIO
+            and trusted(a)
+            and max(SequenceMatcher(None, k, qk).ratio() for k in name_keys(a["name"]) for qk in q_keys)
+            >= FUZZY_ARTIST_RATIO
         ]
     if not exact:
         return None

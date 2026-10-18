@@ -82,3 +82,9 @@ def test_mark_exact_fills_unknown_duration_from_catalog(result, weeknd):
     r = result("Blinding Lights", "The Weeknd", 0, source="ytm")
     mark_exact(r, [weeknd])
     assert r.exact and r.duration == 200
+
+
+def test_typo_in_the_artist_of_a_song_query_still_names_the_artist():
+    # «metalica nothing else matters»: без этого эталоном становилась кавер-запись Chris Stapleton
+    canons = [Canon("Chris Stapleton", "Nothing Else Matters", 495), Canon("Metallica", "Nothing Else Matters", 388)]
+    assert exact_refs(canons, "metalica nothing else matters")[0].artist == "Metallica"

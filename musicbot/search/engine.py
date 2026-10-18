@@ -80,7 +80,7 @@ async def _to_db(key: str, out: Outcome) -> None:
 
 
 # меняется, когда меняются правила поиска: старые сохранённые выдачи после выкатки просто перестают находиться
-DB_KEY_VERSION = "v2|"
+DB_KEY_VERSION = "v3|"
 PARTIAL_TTL = 600  # неполная выдача живёт 10 минут и только в памяти: источник мог просто запнуться
 _background: set[asyncio.Task] = set()
 

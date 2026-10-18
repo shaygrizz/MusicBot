@@ -1,6 +1,7 @@
 """Точный трек: тот же оригинал, без ремиксов, live, каверов и обрезков."""
 
 import re
+from difflib import SequenceMatcher
 
 from ..download import (
     SearchResult,
@@ -94,16 +95,32 @@ def mark_exact(r: SearchResult, refs: list[Canon]) -> None:
     r.exact = False
 
 
+ARTIST_TYPO_RATIO = 0.85  # опечатка в имени исполнителя внутри запроса («metalica nothing else matters»)
+
+
+def artist_in_query(names: set[str], query: str) -> bool:
+    """Имя исполнителя названо в запросе вместе с другими словами; в слове допустима опечатка (длинные имена)."""
+    q = norm(query)
+    words = [norm(w) for w in query.split()]
+    for n in names:
+        if not n or len(q) <= len(n) + 1:
+            continue
+        if n in q or (
+            len(n) >= 5 and any(len(w) >= 4 and SequenceMatcher(None, n, w).ratio() >= ARTIST_TYPO_RATIO for w in words)
+        ):
+            return True
+    return False
+
+
 def exact_refs(canons: list[Canon], query: str) -> list[Canon]:
     """Эталон для проверки «точности»: самая популярная чистая запись каталога (каталог отдаёт её первой)
     и её дубли с той же длительностью. Другие песни с таким названием и версии другой длины эталоном не служат."""
     clean = [c for c in canons if is_clean_canon(c)]
     if not clean:
         return []
-    q = norm(query)
     # исполнитель назван, если его имя есть в запросе вместе с другими словами (запрос «starboy» — это название песни,
     # а не исполнитель Starboy)
-    named = [c for c in clean if any(n and n in q and len(q) > len(n) + 1 for n in artist_names(main_artist(c.artist)))]
+    named = [c for c in clean if artist_in_query(artist_names(main_artist(c.artist)), query)]
     pool = named or clean
     top = pool[0]
     who = artist_names(main_artist(top.artist))
