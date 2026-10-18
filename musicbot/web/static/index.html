@@ -522,7 +522,17 @@ function backdrop() {
   const box = $("div", "backdrop"), img = $("img"), saved = rememberedBg();
   box.setAttribute("aria-hidden", "true"); img.alt = "";
   if (saved) img.src = saved;
-  box.append(img); return box;
+  box.append(img); holdBackdrop(box); return box;
+}
+// the keyboard shrinks the window and "cover" would rescale the picture: keep the tallest height seen at this width
+function holdBackdrop(box) {
+  let w = 0, h = 0;
+  const fit = () => {
+    const nw = window.innerWidth, nh = window.innerHeight;
+    if (nw !== w) { w = nw; h = nh; } else if (nh > h) h = nh;  // a turned phone starts over, a keyboard only shrinks
+    box.style.height = h + "px"; box.style.bottom = "auto";
+  };
+  fit(); window.addEventListener("resize", fit);
 }
 function setBackdrop() {
   const i = document.querySelector(".backdrop img"), src = state.bg || BG_DEFAULT;
