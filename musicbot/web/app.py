@@ -20,7 +20,7 @@ from aiogram import Bot
 from aiogram.types import FSInputFile
 from aiohttp import ClientSession, ClientTimeout, web
 
-from .. import audiocache, db, download, favcache, net, paths, search, texts
+from .. import audiocache, charts, db, download, favcache, net, paths, search, texts
 from .. import favorites as favlib  # внутри make_app есть обработчик с именем favorites
 from ..download import Downloaded, SearchResult
 from ..download.youtube import YT_PROXY
@@ -164,7 +164,7 @@ def _seed_taste(lang: str) -> list[tuple[str, int]]:
     return [(a, 1) for a in SEED_ARTISTS.get(lang) or SEED_ARTISTS["en"]]
 
 
-async def _recs(user_id: int, lang: str) -> list[dict]:
+async def _recs(user_id: int, lang: str, country: str = "US") -> list[dict]:
     cached = _recs_cache.get(user_id)
     if cached and time.time() - cached[0] < RECS_TTL:
         return cached[1]
@@ -172,6 +172,12 @@ async def _recs(user_id: int, lang: str) -> list[dict]:
     taste = [(a, w) for a, w in await db.taste_artists(user_id) if a.lower() not in blocked]
     artists = [a for a, _ in taste[:3]]
     if not artists:
+        chart = await asyncio.to_thread(charts.country_chart, country)  # новичку: что слушают в его стране
+        top = [t for t in chart[:30] if t["artist"].lower() not in blocked]
+        if top:
+            recs = random.sample(top, min(10, len(top)))
+            _recs_cache[user_id] = (time.time(), recs)
+            return recs
         taste = _seed_taste(lang)
         artists = random.sample([a for a, _ in taste], 3)
     recs = await asyncio.to_thread(_deezer_recs, artists, _allowed_scripts(taste), blocked)
@@ -227,6 +233,25 @@ def _known_song(index: dict[str, list[str]], artist: str, title: str) -> bool:
     Точный ключ избранного для этого узок: волна включала любимую песню другой версией."""
     who = latin(artist)
     return any(not who or not other or who in other or other in who for other in index.get(norm(core_title(title)), []))
+
+
+def _chart_wave(country: str, seen: set[str], skipped: set[str], n: int, avoid: dict[str, list[str]]) -> list[dict]:
+    """Партия волны для человека без вкуса: песни чарта его страны вперемешку, без уже игравших и пропущенных."""
+    chart = list(charts.country_chart(country)[:40])
+    random.shuffle(chart)
+    out = []
+    for t in chart:
+        if len(out) >= n:
+            break
+        if (
+            t["artist"].lower() in skipped
+            or db.fav_key(t["artist"], t["title"]) in seen
+            or _known_song(avoid, t["artist"], t["title"])
+        ):
+            continue
+        seen.add(db.fav_key(t["artist"], t["title"]))
+        out.append(dict(t))
+    return out
 
 
 def _deezer_wave(
@@ -792,7 +817,8 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
 
     async def recs(request: web.Request):
         user = await authed_user(request)
-        return web.json_response({"items": await _recs(user["id"], texts.current())})
+        country = charts.country_for(request.headers.get("X-Timezone"), texts.current())
+        return web.json_response({"items": await _recs(user["id"], texts.current(), country)})
 
     async def wave(request: web.Request):
         """«Моя волна»: следующая партия песен по вкусу. Страница присылает уже игравшие песни и пропущенных исполнителей."""
@@ -804,10 +830,18 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         blocked = await db.disliked_artists(user["id"])
         skipped |= blocked
         taste = [(a, w) for a, w in await db.taste_artists(user["id"]) if a.lower() not in blocked]
-        taste = taste or _seed_taste(texts.current())
         try:
             avoid = _song_index(await db.known_songs(user["id"]))
-            items = await asyncio.to_thread(_deezer_wave, taste, seen, skipped, n, avoid)
+            items = []
+            if (
+                not taste
+            ):  # новичок: сначала чарт его страны, когда он кончился (или не отвечает) — исполнители на его языке
+                country = charts.country_for(request.headers.get("X-Timezone"), texts.current())
+                items = await asyncio.to_thread(_chart_wave, country, seen, skipped, n, avoid)
+            if len(items) < n:
+                items += await asyncio.to_thread(
+                    _deezer_wave, taste or _seed_taste(texts.current()), seen, skipped, n - len(items), avoid
+                )
         except Exception as e:
             logging.warning("webapp: волна не собралась: %s", str(e)[:120])
             raise web.HTTPBadGateway(text="wave failed")

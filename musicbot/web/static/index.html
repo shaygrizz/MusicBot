@@ -493,13 +493,15 @@ const norm = s => (s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 const isFav = r => state.favs.some(f => f.key === norm(r.artist) + norm(r.title));
 
 async function api(path) {
-  const r = await fetch(path, { headers: { "X-Init-Data": tg ? tg.initData : "" } });
+  const r = await fetch(path, { headers: { "X-Init-Data": tg ? tg.initData : "", "X-Timezone": zone() } });
   if (!r.ok) throw new Error(r.status);
   return r.json();
 }
+// the time zone tells the server which country's chart a new listener gets (Telegram does not say where a person is)
+function zone() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; } }
 async function post(path, body, signal) {
   const r = await fetch(path, { method: "POST", body: JSON.stringify(body), signal,
-    headers: { "X-Init-Data": tg ? tg.initData : "", "Content-Type": "application/json" } });
+    headers: { "X-Init-Data": tg ? tg.initData : "", "X-Timezone": zone(), "Content-Type": "application/json" } });
   if (!r.ok) throw new Error(r.status);
   return r.json();
 }

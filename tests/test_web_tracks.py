@@ -180,6 +180,7 @@ async def test_new_user_gets_seed_artists_in_own_language(monkeypatch):
     async def no_known_songs(user_id):
         return []
 
+    monkeypatch.setattr(webapp.charts, "country_chart", lambda country: [])  # лента не отвечает: исполнители по языку
     monkeypatch.setattr(webapp.db, "taste_artists", no_taste)
     monkeypatch.setattr(webapp.db, "disliked_artists", nobody_disliked)
     monkeypatch.setattr(webapp.db, "known_songs", no_known_songs)
@@ -296,5 +297,44 @@ async def test_favorite_keeps_the_exact_file_and_source_the_user_heard(monkeypat
         monkeypatch.setattr(favcache, "ensure", ensure)
         r = await c.post("/api/favplay", json=song, headers=head)
         assert r.status == 200 and ensured == [lazy]  # при повторной загрузке качается тот же источник
+    finally:
+        await c.close()
+
+
+async def test_new_user_wave_starts_from_the_chart_of_their_country(monkeypatch):
+    asked, waves = [], []
+
+    def chart(country):
+        asked.append(country)
+        return [
+            {"artist": "Монеточка", "title": "Каждый раз", "duration": 0, "cover": "", "because": "", "auto": True},
+            {"artist": "Zivert", "title": "Credo", "duration": 0, "cover": "", "because": "", "auto": True},
+        ]
+
+    async def no_taste(user_id, limit=20):
+        return []
+
+    async def nobody_disliked(user_id):
+        return set()
+
+    async def known(user_id):
+        return [("Zivert", "Credo (Radio Edit)")]  # уже есть в избранном: в другой версии не предлагаем
+
+    def fake_wave(taste, seen, skipped, n=10, avoid=None):
+        waves.append(n)
+        return []
+
+    monkeypatch.setattr(webapp.charts, "country_chart", chart)
+    monkeypatch.setattr(webapp.db, "taste_artists", no_taste)
+    monkeypatch.setattr(webapp.db, "disliked_artists", nobody_disliked)
+    monkeypatch.setattr(webapp.db, "known_songs", known)
+    monkeypatch.setattr(webapp, "_deezer_wave", fake_wave)
+    c = await client()
+    try:
+        head = {"X-Init-Data": init_data(), "X-Timezone": "Europe/Moscow"}
+        r = await c.post("/api/wave", json={"n": 5}, headers=head)
+        data = await r.json()
+        assert [t["title"] for t in data["items"]] == ["Каждый раз"]
+        assert asked == ["RU"] and waves == [4]  # чарт кончился: недостающее добирают исполнители по языку
     finally:
         await c.close()

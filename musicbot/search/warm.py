@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 
+from .. import charts
 from ..download import get_ytm
 from .http import get_json
 
@@ -29,6 +30,8 @@ async def keep_warm() -> None:
     # каталоги — только при запуске: частые служебные запросы к Deezer с адреса сервера похожи на бота,
     # а его антибот-защита может начать резать и настоящие поиски
     await _ping_safe(catalogs=True)
+    for country in ("RU", "IT", "US"):  # чарты для новых пользователей готовы к первому открытию
+        await asyncio.to_thread(charts.country_chart, country)
     while WARM_INTERVAL > 0:
         await asyncio.sleep(WARM_INTERVAL)
         await _ping_safe(catalogs=False)
