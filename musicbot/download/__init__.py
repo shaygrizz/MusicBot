@@ -3,7 +3,7 @@
 from .chain import download, init, youtube_block_left
 from .fallbacks import hitmo_download
 from .media import fetch_thumb, probe_duration
-from .models import MAX_SIZE, Downloaded, SearchResult
+from .models import MAX_SIZE, Downloaded, SearchResult, set_size_limit, size_limit
 from .urls import extract_url, resolve_short
 from .youtube import TOO_BIG, forget, stream_source, warm
 from .ytmusic import get_ytm, search, search_ytdlp_sync, small_thumb
@@ -11,6 +11,8 @@ from .ytmusic import get_ytm, search, search_ytdlp_sync, small_thumb
 __all__ = [
     "Downloaded",
     "MAX_SIZE",
+    "set_size_limit",
+    "size_limit",
     "SearchResult",
     "TOO_BIG",
     "download",

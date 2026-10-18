@@ -88,6 +88,16 @@ A `Dockerfile` is included (`amvera.yaml` is left over from the previous host, A
 
 YouTube often blocks data-center IPs. If downloads fail with a "not a bot" error, place a `cookies.txt` exported from a logged-in browser in `DATA_DIR`.
 
+## Files over 50 MB (optional)
+
+Telegram does not let bots upload files above 50 MB, while a regular account can (up to 2 GB). With a helper account ("agent", via Telethon) the bot sends long mixes and large videos too: the agent uploads the file to the bot's private chat, and the bot forwards it by its own `file_id`.
+
+1. Create a separate, expendable Telegram account and get `api_id` / `api_hash` at https://my.telegram.org.
+2. Run `python -m musicbot.userbot_login` on your computer and copy the printed session string.
+3. Set `USERBOT_API_ID`, `USERBOT_API_HASH`, `USERBOT_SESSION` (and optionally `USERBOT_MAX_MB`, default 1000) in the environment.
+
+Without these variables nothing changes: files over 50 MB are refused. Treat the session string like a password. Automating a user account can get it banned, which is why it should not be your main one.
+
 ## Disclaimer
 
 A personal project. Some fallback sources are third-party aggregators that are not licensed by rights holders; use the bot only for content you have the right to download, and respect each service's terms.

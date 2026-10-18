@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from .. import audiocache
 from ..download import (
+    MAX_SIZE,
     TOO_BIG,
     Downloaded,
     SearchResult,
@@ -161,7 +162,8 @@ async def fetch_audio(url: str, meta: SearchResult | None) -> "Downloaded":
             hit.title, hit.artist = meta.title, meta.artist or hit.artist
         return hit
     d = await _fetch_audio(url, meta)
-    await asyncio.to_thread(audiocache.put, [url, d.origin], d)
+    if d.path.stat().st_size <= MAX_SIZE:  # длинный микс не кладём в общий кэш: он вытеснил бы остальное
+        await asyncio.to_thread(audiocache.put, [url, d.origin], d)
     return d
 
 

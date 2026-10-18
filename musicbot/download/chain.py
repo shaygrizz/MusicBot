@@ -12,7 +12,7 @@ from .. import ffmpeg
 from ..paths import DOWNLOAD_DIR
 from .fallbacks import audius_download, hitmo_download, tikwm, title_fallbacks
 from .media import MAX_LEADING_SILENCE, fetch_thumb, fetch_thumb_bytes, leading_silence, to_mp3
-from .models import MAX_SIZE, Downloaded, SearchResult
+from .models import Downloaded, SearchResult, size_limit
 from .urls import resolve_short
 from .youtube import ALT_YT_CLIENTS, BOT_BLOCK_MARKERS, TOO_BIG, UNAVAILABLE_MARKERS, fast_audio, ytdlp_run
 
@@ -111,7 +111,7 @@ def _finish(
             raise RuntimeError(f"в файле {gap:.0f} с тишины в начале")
     if kind == "audio" and path.suffix.lower() not in {".m4a", ".mp3"}:
         path = to_mp3(path)  # запасной путь: Telegram принимает только m4a/mp3
-    if path.stat().st_size > MAX_SIZE:
+    if path.stat().st_size > size_limit():
         shutil.rmtree(workdir, ignore_errors=True)
         raise RuntimeError("File exceeds 50 MB: Telegram does not let bots send it")
 

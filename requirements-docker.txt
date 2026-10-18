@@ -1,3 +1,4 @@
 -r requirements.txt
+cryptg>=0.5
 shazamio==0.8.1
 nodejs-wheel-binaries>=22,<23
