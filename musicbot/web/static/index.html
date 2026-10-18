@@ -214,6 +214,24 @@
   .ico.tog svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
   .ico.tog[aria-pressed="true"] { color: var(--rose); }
   .ico.tog[aria-pressed="true"]::after { content: ""; position: absolute; left: 50%; bottom: 6px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
+  /* текст песни: кнопка под громкостью (тусклая, пока текста нет) и полноэкранный просмотр */
+  .lyrrow { display: flex; justify-content: center; margin-top: var(--s3); }
+  .lyrbtn { display: grid; place-items: center; width: 96px; height: 44px; padding: 0; border: 0; border-radius: 22px; background: rgba(243, 239, 248, .06); color: var(--text2); opacity: .45; cursor: default; }
+  .lyrbtn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .lyrbtn.has { background: rgba(243, 239, 248, .14); color: var(--text); opacity: 1; cursor: pointer; }
+  .lyrview { position: fixed; inset: 0; z-index: 12; margin-inline: auto; max-width: 560px; display: flex; flex-direction: column; background: rgba(14, 9, 22, .97); }
+  .lyrview[hidden] { display: none; }
+  .lyrtop { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--s3); padding: var(--s4) var(--s4) var(--s2); }
+  .lyrtop .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--t-lead)/1.2 var(--display); }
+  .lyrtop .a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); font-size: var(--t-meta); }
+  .lyrbody { position: relative; flex: 1; overflow-y: auto; padding: var(--s5) var(--s5) 45vh; scrollbar-width: none; }
+  .lyrbody::-webkit-scrollbar { display: none; }
+  .lline { margin: 0 0 var(--s4); font: 600 26px/1.25 var(--sans); color: var(--text2); opacity: .4; cursor: pointer; }
+  .lline.gap { opacity: .2; }
+  .lline.on { color: var(--text); opacity: 1; }
+  @media (prefers-reduced-motion: no-preference) { .lline { transition: opacity .25s, color .25s; } }
+  .lplain { margin: 0; white-space: pre-wrap; font: 500 var(--t-lead)/1.6 var(--sans); }
+  .lnone { color: var(--text2); }
   .nowmsg { min-height: 20px; margin-top: var(--s2); color: var(--text2); font-size: var(--t-meta); text-align: center; }
   .nowbar .textbtn { margin-top: var(--s2); padding-block: var(--s3); }
   body.withbar { padding-bottom: calc(300px + var(--tabbar)); }
@@ -318,7 +336,7 @@ const I18N = {
     activityAria: "Activity over the last 30 days", ago30: "30 days ago", today: "Today", clockAria: "Listening by hour of day",
     unknownArtist: "Unknown artist", playItem: "Play {title}, {artist}",
     songs: "Songs", findingSongs: "Finding songs…", noSongs: "No songs found for this artist.", songsFail: "Could not load songs. Try again.",
-    noTracks: "No tracks yet.", favFail: "Could not update favorites.", favRemove: "Remove from favorites", favAdd: "Add to favorites",
+    noTracks: "No tracks yet.", lyrics: "Lyrics", lyricsNone: "No lyrics for this song", closeLyrics: "Close lyrics", favFail: "Could not update favorites.", favRemove: "Remove from favorites", favAdd: "Add to favorites",
     playFavs: "Play favorites ({n})", shuffle: "Shuffle", repeat: "Repeat this track", mix: "Mix",
     mute: "Mute", unmute: "Unmute", volume: "Volume", closePlayer: "Close player", minPlayer: "Minimize player",
     expandPlayer: "Expand player", play: "Play", pause: "Pause", prevTrack: "Previous track", nextTrack: "Next track", seek: "Seek",
@@ -358,7 +376,7 @@ const I18N = {
     activityAria: "Активность за последние 30 дней", ago30: "30 дней назад", today: "Сегодня", clockAria: "Прослушивание по часам суток",
     unknownArtist: "Неизвестный исполнитель", playItem: "Включить {title}, {artist}",
     songs: "Песни", findingSongs: "Ищу песни…", noSongs: "Песен этого исполнителя не найдено.", songsFail: "Не удалось загрузить песни. Попробуйте ещё раз.",
-    noTracks: "Пока нет треков.", favFail: "Не удалось обновить избранное.", favRemove: "Убрать из избранного", favAdd: "В избранное",
+    noTracks: "Пока нет треков.", lyrics: "Текст песни", lyricsNone: "Для этой песни нет текста", closeLyrics: "Закрыть текст", favFail: "Не удалось обновить избранное.", favRemove: "Убрать из избранного", favAdd: "В избранное",
     playFavs: "Включить избранное ({n})", shuffle: "Вперемешку", repeat: "Повторять этот трек", mix: "Вперемешку",
     mute: "Выключить звук", unmute: "Включить звук", volume: "Громкость", closePlayer: "Закрыть плеер", minPlayer: "Свернуть плеер",
     expandPlayer: "Развернуть плеер", play: "Играть", pause: "Пауза", prevTrack: "Предыдущий трек", nextTrack: "Следующий трек", seek: "Перемотка",
@@ -399,7 +417,7 @@ const I18N = {
     activityAria: "Attività degli ultimi 30 giorni", ago30: "30 giorni fa", today: "Oggi", clockAria: "Ascolto per ora del giorno",
     unknownArtist: "Artista sconosciuto", playItem: "Riproduci {title}, {artist}",
     songs: "Brani", findingSongs: "Cerco i brani…", noSongs: "Nessun brano trovato per questo artista.", songsFail: "Impossibile caricare i brani. Riprova.",
-    noTracks: "Ancora nessun brano.", favFail: "Impossibile aggiornare i preferiti.", favRemove: "Rimuovi dai preferiti", favAdd: "Aggiungi ai preferiti",
+    noTracks: "Ancora nessun brano.", lyrics: "Testo", lyricsNone: "Nessun testo per questo brano", closeLyrics: "Chiudi il testo", favFail: "Impossibile aggiornare i preferiti.", favRemove: "Rimuovi dai preferiti", favAdd: "Aggiungi ai preferiti",
     playFavs: "Riproduci i preferiti ({n})", shuffle: "Casuale", repeat: "Ripeti questo brano", mix: "Casuale",
     mute: "Disattiva audio", unmute: "Attiva audio", volume: "Volume", closePlayer: "Chiudi il player", minPlayer: "Riduci il player",
     expandPlayer: "Espandi il player", play: "Riproduci", pause: "Pausa", prevTrack: "Brano precedente", nextTrack: "Brano successivo", seek: "Posizione",
@@ -753,6 +771,7 @@ function icon(name) {
     star: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z",  // «в избранное» — сердце
     dislike: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10zM4 4l16 16",
     more: "M5 12h.01M12 12h.01M19 12h.01",
+    lyrics: "M4 6h7M7.5 6v10M14 9h6M14 13h6M11 17.5h9",
     volume: "M4 10v4h3l4 3V7l-4 3zM15 9.5a3.5 3.5 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10",
     muted: "M4 10v4h3l4 3V7l-4 3zM16 9.5l5 5M21 9.5l-5 5",
     wave: "M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4",
@@ -881,7 +900,7 @@ function ensurePlayerBar() {
   disc.append(discSvg(), discimg); info.append(title, sub); tools.append(star, shrink, close); top.append(disc, info, tools);
   seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(mixb, prev, main, next, loop);
   mt.setAttribute("aria-label", t("expandPlayer")); mini.append(mline, mplay, mt, grow);
-  bar.append(top, seek, times, ctrl, volumeControl(), msg, hand, mini);
+  bar.append(top, seek, times, ctrl, volumeControl(), lyricsRow(), msg, hand, mini);
   document.body.append(bar); document.body.classList.add("withbar");
   Object.assign(player, { bar, au, els: { discimg, disc, title, sub, fill, dot, range, cur, dur, main, msg, hand, mt, star, prev, next } });
   star.onclick = toggleFav;
@@ -904,6 +923,7 @@ function ensurePlayerBar() {
       wv.range.value = Math.round(p * 1000); wv.cur.textContent = tm(au.currentTime); wv.dur.textContent = au.duration ? tm(au.duration) : "";
     }
     range.value = Math.round(p * 1000); cur.textContent = tm(au.currentTime); dur.textContent = au.duration ? tm(au.duration) : "";
+    lyrTick(au.currentTime);
     if ("mediaSession" in navigator && navigator.mediaSession.setPositionState && au.duration) {
       try { navigator.mediaSession.setPositionState({ duration: au.duration, position: au.currentTime, playbackRate: 1 }); } catch (e) {}
     }
@@ -1016,6 +1036,7 @@ async function playAt(i, from = 0, ready = null) {
   if (!it) { stopPlayer(); return; }
   player.i = i;
   setNow(it, t("loading"));
+  loadLyrics(it);
   markNow();
   try {
     const url = ready || await trackUrl(i);
@@ -1157,7 +1178,7 @@ function wavePage() {
   range.oninput = () => { const au = player.au; if (au && au.duration) au.currentTime = au.duration * range.value / 1000; };
   times.append(cur, dur);
   img.alt = ""; inner.append(img); cover.append(inner); prog.append(fill, dot, range); row.append(dis, pill, like); ctrl.append(prev, play, next);
-  card.append(row, ctrl, prog, times, volumeControl(), why);
+  card.append(row, ctrl, prog, times, volumeControl(), lyricsRow(), why);
   page.append($("h1", "wavetitle", t("myWave")), cover, card);
   why.setAttribute("role", "status");
   const live = () => !!player.wave && !!player.bar && !player.bar.hidden;
@@ -1209,6 +1230,91 @@ function syncWave() {
   wv.like.classList.toggle("on", fav); wv.like.setAttribute("aria-label", fav ? t("favRemove") : t("favAdd"));
   const msg = on ? player.els.msg.textContent : "";
   wv.why.textContent = wv.note || msg || (sv ? t("wavePaused") : it && it.because && it.because !== it.artist ? t("because", { name: it.because }) : it ? "" : t("waveIdle"));
+}
+
+// lyrics: the button is dim while the song has none and light when it does; a tap opens the lines, the current one lit
+// and scrolled to the middle (a song with timestamps), or the plain text
+const lyr = { key: "", data: null, memo: new Map(), btns: new Set(), view: null, rows: [], at: -1, open: false, hold: 0 };
+const lyrKey = it => norm(it.artist) + "|" + norm(it.title);
+function lyricsRow() {
+  const row = $("div", "lyrrow"), b = $("button", "lyrbtn");
+  b.append(icon("lyrics")); b.setAttribute("aria-label", t("lyrics")); b.disabled = true;
+  b.onclick = openLyrics;
+  lyr.btns.add(b); row.append(b); return row;
+}
+async function loadLyrics(it) {
+  const key = lyrKey(it);
+  if (key === lyr.key && (lyr.data || lyr.memo.has(key))) return;  // the same song again: nothing to ask
+  lyr.key = key; lyr.data = lyr.memo.get(key) || null; syncLyrics();
+  if (lyr.memo.has(key)) return;
+  try {
+    const r = await post("/api/lyrics", { artist: it.artist, title: it.title, duration: it.duration || 0 });
+    const data = r.found ? r : null;
+    lyr.memo.set(key, data);
+    if (lyr.memo.size > 60) lyr.memo.delete(lyr.memo.keys().next().value);
+    if (lyr.key === key) lyr.data = data;
+  } catch (e) { /* no answer: the button stays dim, the next play asks again */ }
+  if (lyr.key === key) syncLyrics();
+}
+function syncLyrics() {
+  for (const b of lyr.btns) {
+    if (!b.isConnected && lyr.btns.size > 4) { lyr.btns.delete(b); continue; }
+    b.disabled = !lyr.data; b.classList.toggle("has", !!lyr.data);
+  }
+  if (lyr.open) renderLyrics();
+}
+function lyricsView() {
+  if (lyr.view) return lyr.view;
+  const v = $("div", "lyrview"), top = $("div", "lyrtop"), info = $("div"), close = iconButton("close", t("closeLyrics"), "quiet");
+  const body = $("div", "lyrbody"), name = $("div", "t"), by = $("div", "a");
+  info.append(name, by); top.append(info, close); v.append(top, body); v.hidden = true;
+  Object.assign(v, { body, name, by });
+  close.onclick = () => closeLyrics();
+  const hold = () => { lyr.hold = Date.now() + 4000; };  // a finger on the text: it does not jump away
+  body.addEventListener("touchmove", hold, { passive: true }); body.addEventListener("wheel", hold, { passive: true });
+  document.body.append(v); lyr.view = v; return v;
+}
+function openLyrics() {
+  if (!lyr.data) return;
+  const v = lyricsView();
+  lyr.open = true; v.hidden = false; renderLyrics();
+  try { history.pushState({ lyrics: 1 }, ""); } catch (e) {}
+  if (tg && tg.BackButton) tg.BackButton.show();
+}
+function closeLyrics(fromHistory) {
+  if (!lyr.open) return;
+  lyr.open = false; lyr.view.hidden = true;
+  if (tg && tg.BackButton && !sheetOpen) tg.BackButton.hide();
+  if (fromHistory !== true && history.state && history.state.lyrics) history.back();
+}
+window.addEventListener("popstate", () => { if (lyr.open) closeLyrics(true); });
+if (tg && tg.BackButton) tg.BackButton.onClick(() => { if (lyr.open) closeLyrics(); });
+function renderLyrics() {
+  const v = lyricsView(), it = player.items[player.i], d = lyr.data;
+  v.name.textContent = it ? it.title : ""; v.by.textContent = it ? it.artist : "";
+  v.body.replaceChildren(); lyr.rows = []; lyr.at = -1;
+  if (!d) { v.body.append($("p", "lnone", t("lyricsNone"))); return; }
+  if (!d.synced) { v.body.append($("p", "lplain", d.plain)); return; }
+  d.synced.forEach(([sec, text]) => {
+    const p = $("p", "lline" + (text ? "" : " gap"), text || "♪");
+    p.onclick = () => { if (player.au && player.au.duration) player.au.currentTime = sec; };
+    v.body.append(p); lyr.rows.push(p);
+  });
+  lyrTick(player.au ? player.au.currentTime : 0, true);
+}
+function lyrTick(time, jump) {
+  if (!lyr.open || !lyr.data || !lyr.data.synced || !lyr.rows.length) return;
+  let i = -1;
+  for (let k = 0; k < lyr.data.synced.length && lyr.data.synced[k][0] <= time + 0.3; k++) i = k;
+  if (i === lyr.at) return;
+  if (lyr.at >= 0) lyr.rows[lyr.at].classList.remove("on");
+  lyr.at = i;
+  if (i < 0) return;
+  const row = lyr.rows[i], body = lyr.view.body;
+  row.classList.add("on");
+  if (Date.now() < lyr.hold && !jump) return;
+  const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches && !jump;
+  body.scrollTo({ top: row.offsetTop - body.clientHeight / 2 + row.offsetHeight / 2, behavior: smooth ? "smooth" : "auto" });
 }
 
 // bottom tabs: Wave (home), Favorites, Stats, Discover
@@ -1646,7 +1752,7 @@ function render() {
   else page.append(discoverPage(d));
   root.replaceChildren(page);
   if (state.tab !== "wave") wv.page = null;
-  syncWave(); markNow();
+  syncWave(); markNow(); syncLyrics();
 }
 
 async function main() {

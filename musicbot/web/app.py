@@ -25,6 +25,7 @@ from .. import favorites as favlib  # внутри make_app есть обраб�
 from ..download import Downloaded, SearchResult
 from ..download.youtube import YT_PROXY
 from ..search import fetch as fetch_mod
+from ..search import lrclib
 from ..textutil import core_title, latin, norm, same_artist
 
 INDEX = Path(__file__).parent / "static" / "index.html"
@@ -736,6 +737,20 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             )
         return web.json_response({"url": f"/api/file/{tok}", "play": play_ids.get(tok)})
 
+    async def lyrics(request: web.Request):
+        """Текст песни для плеера: строки с тайм-кодами, если они есть, иначе обычный текст."""
+        await authed_user(request)
+        body = await request.json()
+        artist, title = str(body.get("artist", ""))[:100], str(body.get("title", ""))[:150]
+        if not title:
+            raise web.HTTPBadRequest(text="no title")
+        try:
+            data = await lrclib.get_lyrics(artist, title, max(int(body.get("duration") or 0), 0))
+        except Exception as e:
+            logging.info("webapp: текст не получен %s - %s: %s", artist, title, str(e)[:100])
+            raise web.HTTPBadGateway(text="lyrics failed")  # сбой не кэшируется: в следующий раз спросим снова
+        return web.json_response({"found": bool(data), **(data or {})})
+
     async def listened(request: web.Request):
         """Сколько секунд песни человек послушал: пропуск за секунды весит в его вкусе меньше, чем песня до конца."""
         user = await authed_user(request)
@@ -1025,6 +1040,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             web.get("/api/recs", recs),
             web.post("/api/wave", wave),
             web.post("/api/listened", listened),
+            web.post("/api/lyrics", lyrics),
             web.post("/api/dislike", dislike),
             web.post("/api/track", track),
             web.get("/api/artist", artist_songs),
