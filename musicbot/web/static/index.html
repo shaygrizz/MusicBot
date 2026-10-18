@@ -177,10 +177,10 @@
   .quick { margin-top: var(--s5); }
   .nowbar { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 9; margin-inline: auto; max-width: 560px; padding: var(--s4) var(--s4) var(--s3); background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-top: 2px solid var(--gold); clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }
   .nowbar[hidden] { display: none; }
-  /* обложка песни на фоне плеера, едва заметная, как фоновая картинка страницы */
-  .nowcover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .22; pointer-events: none; }
-  .nowcover[hidden] { display: none; }
-  .nowbar > :not(.nowcover) { position: relative; }
+  /* обложка песни на месте пластинки; песня без обложки остаётся с пластинкой */
+  .nowtop .disc { width: 52px; height: 52px; }
+  .discimg { display: block; width: 52px; height: 52px; object-fit: cover; border-radius: 8px; }
+  .discimg[hidden] { display: none; }
   .nowtop { display: grid; grid-template-columns: 52px 1fr 44px; gap: var(--s3); align-items: center; }
   .disc svg { display: block; width: 52px; height: 52px; }
   .dsc { fill: var(--rose); }
@@ -863,7 +863,7 @@ function ensurePlayerBar() {
     return;
   }
   const au = new Audio(); au.preload = "auto"; applyVol(au);
-  const bar = $("div", "nowbar"), bgcover = $("img", "nowcover"), top = $("div", "nowtop"), disc = $("div", "disc"), info = $("div", "nowinfo");
+  const bar = $("div", "nowbar"), discimg = $("img", "discimg"), top = $("div", "nowtop"), disc = $("div", "disc"), info = $("div", "nowinfo");
   const title = $("div", "nowt"), sub = $("div", "nows"), close = iconButton("close", t("closePlayer"), "quiet");
   const shrink = iconButton("down", t("minPlayer"), "quiet"), tools = $("div", "nowtools");
   const star = iconButton("star", t("favAdd"), "quiet fav");  // the song that is playing, from any list
@@ -877,13 +877,13 @@ function ensurePlayerBar() {
   const msg = $("div", "nowmsg"), hand = $("button", "textbtn", t("handChat"));
   range.type = "range"; range.min = 0; range.max = 1000; range.value = 0; range.setAttribute("aria-label", t("seek"));
   msg.setAttribute("role", "status");
-  disc.append(discSvg()); info.append(title, sub); tools.append(star, shrink, close); top.append(disc, info, tools);
+  discimg.alt = ""; discimg.hidden = true;
+  disc.append(discSvg(), discimg); info.append(title, sub); tools.append(star, shrink, close); top.append(disc, info, tools);
   seek.append(fill, dot, range); times.append(cur, dur); ctrl.append(mixb, prev, main, next, loop);
   mt.setAttribute("aria-label", t("expandPlayer")); mini.append(mline, mplay, mt, grow);
-  bgcover.alt = ""; bgcover.hidden = true;
-  bar.append(bgcover, top, seek, times, ctrl, volumeControl(), msg, hand, mini);
+  bar.append(top, seek, times, ctrl, volumeControl(), msg, hand, mini);
   document.body.append(bar); document.body.classList.add("withbar");
-  Object.assign(player, { bar, au, els: { bgcover, title, sub, fill, dot, range, cur, dur, main, msg, hand, mt, star, prev, next } });
+  Object.assign(player, { bar, au, els: { discimg, disc, title, sub, fill, dot, range, cur, dur, main, msg, hand, mt, star, prev, next } });
   star.onclick = toggleFav;
   const minimize = on => {
     bar.classList.toggle("min", on); document.body.classList.toggle("barmin", on);
@@ -954,9 +954,10 @@ function setNow(it, text) {
   e.title.textContent = it ? it.title : "";
   e.sub.textContent = it ? `${it.artist || ""}${player.items.length > 1 && !player.wave ? `, ${t("queuePos", { i: player.i + 1, n: player.items.length })}` : ""}` : "";
   e.msg.textContent = text || "";
-  const pic = it && it.cover && it.cover.startsWith("https://") ? it.cover : "";  // песня без обложки: фон остаётся как был
-  if (pic) { if (e.bgcover.getAttribute("src") !== pic) e.bgcover.src = pic; } else e.bgcover.removeAttribute("src");
-  e.bgcover.hidden = !pic;
+  const pic = it && it.cover && it.cover.startsWith("https://") ? it.cover : "";  // песня без обложки: вращается пластинка
+  if (pic) { if (e.discimg.getAttribute("src") !== pic) e.discimg.src = pic; } else e.discimg.removeAttribute("src");
+  e.discimg.hidden = !pic;
+  e.disc.firstElementChild.style.display = pic ? "none" : "";
   e.mt.textContent = it ? `${it.artist ? it.artist + " - " : ""}${it.title}` : "";
   syncStar();
   if (it && "mediaSession" in navigator && window.MediaMetadata) {
