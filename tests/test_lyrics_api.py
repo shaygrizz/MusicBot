@@ -1,5 +1,6 @@
 """Тексты песен: разбор LRC, подбор записи LRCLIB, кэш и ответ мини-аппа."""
 
+import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from test_auth import TOKEN, init_data  # pytest кладёт папку tests в путь поиска модулей
 
@@ -96,3 +97,76 @@ async def test_endpoint_needs_signed_data_and_reports_found_or_not(monkeypatch):
         assert (await c.post("/api/lyrics", json={"artist": "A"}, headers=head)).status == 400
     finally:
         await c.close()
+
+
+def test_search_finds_a_song_written_with_another_alphabet_and_yo(monkeypatch):
+    asked = []
+
+    def request(path, params):
+        asked.append((path, tuple(sorted(params))))
+        if path == "search" and params == {
+            "track_name": "Тебе все равно"
+        }:  # LRCLIB хранит без «ё», исполнитель латиницей
+            return [hit(trackName="Тебе все равно", artistName="Nervy")]
+        return None if path == "get" else []
+
+    monkeypatch.setattr(lrclib, "_request", request)
+    found = lrclib.lookup("Нервы", "Тебе всё равно", 200)
+    assert found and found["synced"]
+    assert ("search", ("artist_name", "track_name")) in asked and ("search", ("q",)) in asked  # поиск шёл по очереди
+
+
+def test_search_does_not_take_another_song_by_similar_name(monkeypatch):
+    monkeypatch.setattr(
+        lrclib, "_request", lambda path, params: None if path == "get" else [hit(trackName="Other Song")]
+    )
+    monkeypatch.setattr(lrclib, "_ovh", lambda artist, title: None)
+    assert lrclib.lookup("Artist", "Song", 200) is None
+
+
+class FakeResponse:
+    def __init__(self, status, payload):
+        self.status_code, self._payload = status, payload
+
+    def json(self):
+        return self._payload
+
+
+def test_plain_text_from_lyrics_ovh_when_lrclib_has_nothing(monkeypatch):
+    monkeypatch.setattr(lrclib, "_request", lambda path, params: None if path == "get" else [])
+    urls = []
+
+    def get(url, timeout=0, headers=None):
+        urls.append(url)
+        return FakeResponse(200, {"lyrics": "line one\r\nline two\r\n" + "more words here " * 4})
+
+    monkeypatch.setattr(lrclib.net.session, "get", get)
+    found = lrclib.lookup("Artist, Guest", "Song (feat. Guest)", 200)
+    assert found["synced"] is None and found["plain"].startswith("line one\nline two")
+    assert urls[-1].endswith("/Artist/Song")  # главный исполнитель и название без «feat.»
+
+
+def test_lyrics_ovh_failures_and_stubs_mean_no_lyrics(monkeypatch):
+    monkeypatch.setattr(lrclib, "_request", lambda path, params: None if path == "get" else [])
+    monkeypatch.setattr(lrclib.net.session, "get", lambda *a, **k: FakeResponse(404, {"error": "No lyrics found"}))
+    assert lrclib.lookup("A", "B", 100) is None
+    monkeypatch.setattr(lrclib.net.session, "get", lambda *a, **k: FakeResponse(200, {"lyrics": "too short"}))
+    assert lrclib.lookup("A", "B", 100) is None
+
+    def boom(*a, **k):
+        raise RuntimeError("timeout")
+
+    monkeypatch.setattr(lrclib.net.session, "get", boom)
+    assert lrclib.lookup("A", "B", 100) is None  # сбой запасного источника не роняет запрос
+
+
+def test_lrclib_outage_still_tries_the_fallback_and_is_never_a_cached_miss(monkeypatch):
+    def down(path, params):
+        raise RuntimeError("503")
+
+    monkeypatch.setattr(lrclib, "_request", down)
+    monkeypatch.setattr(lrclib, "_ovh", lambda artist, title: {"synced": None, "plain": "x" * 50})
+    assert lrclib.lookup("A", "B", 100) == {"synced": None, "plain": "x" * 50}
+    monkeypatch.setattr(lrclib, "_ovh", lambda artist, title: None)
+    with pytest.raises(RuntimeError):
+        lrclib.lookup("A", "B", 100)  # ничего не нашли из-за сбоя: ошибка, а не «текста нет»

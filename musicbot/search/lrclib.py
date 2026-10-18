@@ -1,4 +1,5 @@
-"""Тексты песен из LRCLIB (lrclib.net): открытая база без ключа, у многих песен есть тайм-коды строк."""
+"""Тексты песен: LRCLIB (lrclib.net) — открытая база без ключа, у многих песен есть тайм-коды строк; если там пусто,
+обычный текст берётся из lyrics.ovh."""
 
 import asyncio
 import json
@@ -6,11 +7,14 @@ import logging
 import re
 import time
 import urllib.parse
+from difflib import SequenceMatcher
 
 from .. import db, net
 from ..textutil import core_title, norm, same_artist
 
 API = "https://lrclib.net/api"
+OVH = "https://api.lyrics.ovh/v1"
+MIN_PLAIN = 40  # символов: короче — это не текст песни, а заглушка
 UA = "MusicBot (https://github.com/shaygrizz/MusicBot)"  # LRCLIB просит представляться
 FOUND_TTL = 30 * 86400  # найденный текст не меняется
 MISSING_TTL = 2 * 86400  # «текста нет» проверяем снова: его могли добавить
@@ -74,35 +78,90 @@ def _names(artist: str, title: str) -> tuple[list[str], str]:
     return [a for a in artists if a], clean
 
 
-def lookup(artist: str, title: str, duration: int = 0) -> dict | None:
-    """Текст песни: точный запрос по длине, иначе поиск среди записей с тем же названием и исполнителем."""
-    artists, clean = _names(artist, title)
-    for name in artists:
-        params = {"artist_name": name, "track_name": clean}
-        if duration:
-            params["duration"] = duration
-        found = _shape(_request("get", params) or {}, duration)
-        if found:
-            return found
-    want = norm(clean)
+def _title_key(title: str) -> str:
+    return norm(_GUEST.sub("", core_title(title))).replace("ё", "е")
+
+
+def _same_title(a: str, b: str) -> bool:
+    x, y = _title_key(a), _title_key(b)
+    return x == y or (min(len(x), len(y)) >= 6 and SequenceMatcher(None, x, y).ratio() >= 0.9)
+
+
+def _pick(hits, artists: list[str], title: str, duration: int) -> dict | None:
+    """Лучшая запись среди найденных: то же название и исполнитель (нестрого: «Земфира»/«Zemfira», «A, B»/«A»),
+    сначала с тайм-кодами, потом ближайшая по длине."""
     best, best_key = None, None
-    for hit in _request("search", {"track_name": clean, "artist_name": artists[0]}) or []:
-        if norm(_GUEST.sub("", core_title(hit.get("trackName") or ""))) != want:
+    for hit in hits or []:
+        if not _same_title(hit.get("trackName") or "", title):
             continue
-        if not same_artist(artists[0], hit.get("artistName") or ""):
+        if not any(same_artist(a, hit.get("artistName") or "") for a in artists):
             continue
         shaped = _shape(hit, duration)
         if not shaped:
             continue
         gap = abs((hit.get("duration") or 0) - duration) if duration and hit.get("duration") else 0
-        key = (shaped["synced"] is None, gap)  # сначала с тайм-кодами, потом ближайшая по длине
+        key = (shaped["synced"] is None, gap)
         if best_key is None or key < best_key:
             best, best_key = shaped, key
     return best
 
 
+def _lrclib(artist: str, title: str, duration: int) -> dict | None:
+    """Точный запрос по длине, потом поиск: по полям, по общей строке и по одному названию (исполнитель
+    сверяется уже в ответе, так находятся песни, записанные под другим написанием имени)."""
+    artists, clean = _names(artist, title)
+    titles = [clean] + ([clean.replace("ё", "е").replace("Ё", "Е")] if "ё" in clean.lower() else [])
+    exact = [(name, clean) for name in artists] + [(artists[0], t) for t in titles[1:]]
+    for name, track in exact:
+        params = {"artist_name": name, "track_name": track}
+        if duration:
+            params["duration"] = duration
+        found = _shape(_request("get", params) or {}, duration)
+        if found:
+            return found
+    for track in titles:
+        for params in (
+            {"track_name": track, "artist_name": artists[0]},
+            {"q": f"{artists[0]} {track}"},
+            {"track_name": track},
+        ):
+            found = _pick(_request("search", params), artists, clean, duration)
+            if found:
+                return found
+    return None
+
+
+def _ovh(artist: str, title: str) -> dict | None:
+    """Запасной источник: только обычный текст, без тайм-кодов. Сбой этого сервиса не должен ронять поиск."""
+    artists, clean = _names(artist, title)
+    url = f"{OVH}/{urllib.parse.quote(artists[-1], safe='')}/{urllib.parse.quote(clean, safe='')}"
+    try:
+        r = net.session.get(url, timeout=TIMEOUT, headers={"User-Agent": UA})
+        if r.status_code != 200:
+            return None
+        text = str(r.json().get("lyrics") or "").replace("\r\n", "\n").strip()
+    except Exception as e:
+        logging.info("lyrics.ovh не ответил для %s - %s: %s", artist, title, str(e)[:80])
+        return None
+    return {"synced": None, "plain": text} if len(text) >= MIN_PLAIN else None
+
+
+def lookup(artist: str, title: str, duration: int = 0) -> dict | None:
+    """Текст песни: сначала LRCLIB (с тайм-кодами), если там нет — lyrics.ovh (обычный текст). Если LRCLIB не ответил,
+    запасной источник всё равно пробуем, а когда и он пуст, сбой поднимается наверх: «нет текста» в кэш не попадёт."""
+    failure = None
+    try:
+        found = _lrclib(artist, title, duration)
+    except Exception as e:
+        failure, found = e, None
+    found = found or _ovh(artist, title)
+    if found is None and failure is not None:
+        raise failure
+    return found
+
+
 def _key(artist: str, title: str, duration: int) -> str:
-    return f"lyrics|{norm(artist)}|{norm(core_title(title))}|{duration // 5}"
+    return f"lyrics2|{norm(artist)}|{norm(core_title(title))}|{duration // 5}"  # «2»: прежние «не найдено» не считаются
 
 
 async def get_lyrics(artist: str, title: str, duration: int = 0) -> dict | None:
