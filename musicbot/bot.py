@@ -100,6 +100,9 @@ def start_prefetch(results: list[download.SearchResult]) -> None:
     playable = [r for r in results if not r.url.startswith("lazy://")]
     # первую песню выдачи качаем целиком заранее, даже если она из каталога: чаще всего нажимают именно её
     full = playable[:PREFETCH_TOP] if playable and (not lazy or results[0] is playable[0]) else lazy[:1] + playable[:1]
+    if download.youtube_block_left():
+        # YouTube закрыл IP: полная предзагрузка ушла бы в запасные сайты (по две песни на каждый поиск) вхолостую
+        full = [r for r in full if not r.url.startswith("lazy://") and "youtu" not in r.url]
     for r in full:
         if r.url not in prefetch:
             prefetch[r.url] = (now, asyncio.create_task(search.fetch_audio(r.url, r)))

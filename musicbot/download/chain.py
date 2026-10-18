@@ -3,18 +3,31 @@
 import asyncio
 import logging
 import shutil
-import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
+import yt_dlp
+
 from .. import ffmpeg
 from ..paths import DOWNLOAD_DIR
 from .fallbacks import audius_download, hitmo_download, tikwm, title_fallbacks
-from .media import MAX_LEADING_SILENCE, fetch_thumb, fetch_thumb_bytes, leading_silence, to_mp3
+from .media import MAX_LEADING_SILENCE, fetch_thumb, fetch_thumb_bytes, leading_silence, probe_duration, to_mp3
 from .models import MAX_SIZE, Downloaded, SearchResult
 from .urls import resolve_short
-from .youtube import ALT_YT_CLIENTS, BOT_BLOCK_MARKERS, TOO_BIG, UNAVAILABLE_MARKERS, fast_audio, ytdlp_run
+from .youtube import (
+    ALT_YT_CLIENTS,
+    BLOCKED_MESSAGE,
+    TOO_BIG,
+    YT_PROXY,
+    block_youtube,
+    cookies_usable,
+    fast_audio,
+    is_bot_block,
+    is_unavailable,
+    youtube_block_left,
+    ytdlp_run,
+)
 
 
 def _clean_artist(info: dict) -> str:
@@ -24,20 +37,13 @@ def _clean_artist(info: dict) -> str:
     return artist
 
 
-YT_BLOCK_TTL = 120  # секунд помним, что YouTube нас режет, и не тратим время на него
+TITLE_DURATION_GUARD = 20  # секунд: запасной источник ищет по названию и мог отдать другую запись или отрывок
 
 
-_yt_blocked_until = 0.0
-
-
-def youtube_block_left() -> float:
-    """Сколько секунд ещё пропускаем YouTube после блокировки IP («not a bot»); 0 — не пропускаем."""
-    return max(0.0, _yt_blocked_until - time.time())
-
-
-def _strategies(url: str, kind: str, meta: SearchResult | None, fallbacks: bool = True):
+def _strategies(url: str, kind: str, meta: SearchResult | None, fallbacks: bool = True, ignore_block: bool = False):
     """Способы скачивания по порядку: (имя, функция, ходит_ли_в_YouTube).
-    fallbacks=False — без запасных по названию (их запускают отдельно, один раз: url="title://")."""
+    fallbacks=False — без запасных по названию (их запускают отдельно, один раз: url="title://").
+    ignore_block=True — пробуем YouTube, даже если недавно он нас блокировал (последний шанс)."""
     if url == "title://":
         yield from title_fallbacks(url, kind, meta)
         return
@@ -48,7 +54,7 @@ def _strategies(url: str, kind: str, meta: SearchResult | None, fallbacks: bool 
         yield "hitmo", (lambda wd: hitmo_download(url, kind, wd)), False
         return
     is_yt = "youtube.com" in url or "youtu.be" in url
-    if is_yt and time.time() >= _yt_blocked_until:
+    if is_yt and (ignore_block or not youtube_block_left()):
         if kind == "audio":
             yield "parallel", (lambda wd: fast_audio(url, wd)), True
         yield "yt-dlp", (lambda wd: ytdlp_run(url, kind, wd, meta)), True
@@ -68,20 +74,27 @@ def _strategies(url: str, kind: str, meta: SearchResult | None, fallbacks: bool 
 _thumb_pool = ThreadPoolExecutor(4, thread_name_prefix="thumb")
 
 
-def _download_sync(url: str, kind: str, meta: SearchResult | None = None, fallbacks: bool = True) -> Downloaded:
-    global _yt_blocked_until
+def _download_sync(
+    url: str, kind: str, meta: SearchResult | None = None, fallbacks: bool = True, ignore_block: bool = False
+) -> Downloaded:
     url = resolve_short(url)
     errors: list[str] = []
     skip_youtube = False
+    blocked_before = not ignore_block and youtube_block_left() > 0  # блокировка уже была до этой загрузки
     # обложка качается одновременно со звуком, а не после него (экономит до секунды)
     thumb_bytes = _thumb_pool.submit(fetch_thumb_bytes, meta.thumb_url) if meta and meta.thumb_url else None
-    for name, run, uses_yt in _strategies(url, kind, meta, fallbacks):
+    for name, run, uses_yt in _strategies(url, kind, meta, fallbacks, ignore_block):
         if uses_yt and skip_youtube:
             continue
         workdir = DOWNLOAD_DIR / uuid.uuid4().hex[:10]
         workdir.mkdir(parents=True)
         try:
             path, info = run(workdir)
+            if url == "title://" and meta and meta.duration:
+                # запасные источники ищут по названию: отрывок или другая запись — это «не получилось», пробуем следующий
+                real = probe_duration(path)
+                if real and abs(real - meta.duration) > TITLE_DURATION_GUARD:
+                    raise RuntimeError(f"{name}: длина {real:.0f} с вместо {meta.duration} с")
             result = _finish(path, info, kind, meta, workdir, thumb_bytes)
             logging.info("скачано способом %s: %s", name, url)
             return result
@@ -91,14 +104,20 @@ def _download_sync(url: str, kind: str, meta: SearchResult | None = None, fallba
                 raise  # другим способом файл меньше не станет
             logging.warning("способ %s не сработал: %s", name, str(e)[:200])
             errors.append(f"{name}: {str(e)[:120]}")
-            if uses_yt and any(mk in str(e) for mk in BOT_BLOCK_MARKERS):
+            if uses_yt and is_bot_block(str(e)):
                 # остальные клиенты YouTube получат ту же блокировку — идём сразу дальше
                 skip_youtube = True
-                _yt_blocked_until = time.time() + YT_BLOCK_TTL
-            elif uses_yt and any(mk in str(e) for mk in UNAVAILABLE_MARKERS):
+                block_youtube()
+            elif uses_yt and is_unavailable(str(e)):
                 skip_youtube = True  # именно этот ролик закрыт; YouTube в целом нас не блокирует
-    if not errors and "youtu" in url and time.time() < _yt_blocked_until:
-        errors.append("YouTube временно пропущен (недавняя блокировка IP)")
+    if blocked_before and ("youtube.com" in url or "youtu.be" in url):
+        # из-за блокировки YouTube не пробовался вообще (видео, ссылка без названия): блокировка могла уже пройти,
+        # поэтому один последний раз идём в него в обход флага
+        errors.append(BLOCKED_MESSAGE)
+        try:
+            return _download_sync(url, kind, meta, False, True)
+        except Exception as e:
+            errors.append(f"последняя попытка: {str(e)[:160]}")
     raise RuntimeError("Все способы скачивания не сработали: " + " | ".join(errors))
 
 
@@ -141,12 +160,20 @@ def _finish(
     )
 
 
-async def download(url: str, kind: str, meta: SearchResult | None = None, fallbacks: bool = True) -> Downloaded:
-    return await asyncio.to_thread(_download_sync, url, kind, meta, fallbacks)
+async def download(
+    url: str, kind: str, meta: SearchResult | None = None, fallbacks: bool = True, ignore_block: bool = False
+) -> Downloaded:
+    return await asyncio.to_thread(_download_sync, url, kind, meta, fallbacks, ignore_block)
 
 
 def init() -> None:
     """Подготовка при запуске бота: ffmpeg в PATH и чистая папка загрузок (без хвостов прошлого запуска)."""
     ffmpeg.ensure()
+    logging.info(
+        "yt-dlp %s, куки YouTube: %s, прокси: %s",
+        yt_dlp.version.__version__,
+        "есть" if cookies_usable() else "нет",
+        "да" if YT_PROXY else "нет",
+    )
     shutil.rmtree(DOWNLOAD_DIR, ignore_errors=True)
     DOWNLOAD_DIR.mkdir(exist_ok=True)

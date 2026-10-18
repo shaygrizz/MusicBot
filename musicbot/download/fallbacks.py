@@ -215,11 +215,12 @@ def _hitmo_by_title(meta: SearchResult, workdir: Path):
 
 
 def title_fallbacks(url: str, kind: str, meta: SearchResult | None):
-    """Запасные способы по названию (не по ссылке): SoundCloud, hitmotop, затем dydki."""
+    """Запасные способы по названию (не по ссылке): hitmotop, SoundCloud, затем dydki.
+    hitmotop первый: отдаёт полную песню нужной длины за 5–20 с, а SoundCloud часто даёт DRM-защищённую запись или отрывок."""
     query = _sc_query(url, meta)
-    if kind == "audio" and query:
-        yield "soundcloud", (lambda wd: _soundcloud(query, kind, wd, meta)), False
     if kind == "audio" and meta and meta.title:
         yield "hitmo", (lambda wd: _hitmo_by_title(meta, wd)), False
+    if kind == "audio" and query:
+        yield "soundcloud", (lambda wd: _soundcloud(query, kind, wd, meta)), False
     if kind == "audio" and meta and meta.title and meta.artist:
         yield "dydki", (lambda wd: _dydki(meta, wd)), False  # последний шанс

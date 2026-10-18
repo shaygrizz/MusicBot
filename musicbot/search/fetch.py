@@ -12,6 +12,7 @@ from ..download import (
     SearchResult,
     download,
     probe_duration,
+    youtube_block_left,
 )
 from ..paths import DOWNLOAD_DIR
 from ..textutil import BAD_VERSION_RE, core_title, flat, is_mix_cut, latin, norm, same_artist
@@ -22,6 +23,10 @@ ARTIST_SPLIT_RE = re.compile(r"\s*(?:,|&|\+|/|\bfeat\.?|\bft\.?|\bx\b|\band\b|\b
 STRICT_SECONDS = 8  # обычная разница длины одной и той же записи на разных площадках
 LOOSE_SECONDS, LOOSE_SHARE = 20, 0.12  # последний шаг: радиоверсия против альбомной и т.п.
 MIN_TITLE_ONLY = 5  # поиск по одному названию — только для названий не короче (иначе слишком много чужих песен)
+
+
+def is_youtube(url: str) -> bool:
+    return "youtube.com" in url or "youtu.be" in url
 
 
 def artist_names(artist: str) -> list[str]:
@@ -191,9 +196,15 @@ async def _fetch_audio(url: str, meta: SearchResult | None) -> "Downloaded":
             )
         )
     first_round = True
+    youtube_skipped = False
     while True:
         for cand in candidates:
             tried.add(cand.url)
+            if is_youtube(cand.url) and youtube_block_left():
+                # YouTube закрыл IP: ссылка с него сейчас не скачается, не тратим на неё время — идём к запасным источникам
+                youtube_skipped = True
+                last = RuntimeError("YouTube временно пропущен (недавняя блокировка IP)")
+                continue
             try:
                 d = await download(cand.url, "audio", cand if cand.url != url else meta, fallbacks=False)
             except Exception as e:
@@ -215,9 +226,12 @@ async def _fetch_audio(url: str, meta: SearchResult | None) -> "Downloaded":
         if not first_round:
             break
         first_round = False
+        if youtube_block_left():
+            break  # другие версии нашлись бы тоже на YouTube; запасные источники ищут по названию сами
         candidates = await resolve(meta, tried, 3)
         if not candidates:
             break
+    fallback_error: Exception | None = None
     try:  # запасные источники ищут по названию: хвост каталога («- From …», «+ …») им только мешает
         d = await download("title://", "audio", replace(meta, title=core_title(meta.title)))
         if await _wrong_length(d, meta):
@@ -226,4 +240,28 @@ async def _fetch_audio(url: str, meta: SearchResult | None) -> "Downloaded":
         d.title, d.artist = meta.title, meta.artist or d.artist
         return d
     except Exception as e:
-        raise last or e
+        fallback_error = e
+    # блокировка могла уже пройти или касаться не всех запросов: один последний раз пробуем сам YouTube.
+    # Песня из каталога (lazy) ссылки ещё не имеет — находим её версии на YouTube только теперь
+    final: list[str] = [url] if youtube_skipped and not is_lazy(url) else []
+    if not final and is_lazy(url) and youtube_block_left():
+        try:
+            final = [c.url for c in await resolve(meta, tried, 2) if is_youtube(c.url)]
+        except Exception as e:
+            logging.info("последняя попытка: версии не найдены: %s", str(e)[:100])
+    for link in final[:2]:
+        try:
+            d = await download(link, "audio", meta, fallbacks=False, ignore_block=True)
+            if not await _wrong_length(d, meta):
+                d.title, d.artist = meta.title, meta.artist or d.artist
+                d.origin = link
+                return d
+            d.cleanup()
+        except Exception as e:
+            last = e
+    if TOO_BIG in str(fallback_error):
+        raise fallback_error
+    # в ошибке обе причины: почему не скачалось с YouTube и почему не помогли запасные источники
+    raise RuntimeError(
+        f"{last}; запасные источники: {fallback_error}" if last else str(fallback_error)
+    ) from fallback_error

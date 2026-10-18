@@ -23,6 +23,7 @@ from aiohttp import ClientSession, ClientTimeout, web
 from .. import audiocache, db, download, favcache, net, paths, search, texts
 from .. import favorites as favlib  # внутри make_app есть обработчик с именем favorites
 from ..download import Downloaded, SearchResult
+from ..download.youtube import YT_PROXY
 from ..search import fetch as fetch_mod
 from ..textutil import same_artist
 
@@ -735,7 +736,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             asked = request.headers.get("Range")
             # без Range YouTube режет скорость; просим с начала, а клиенту отвечаем обычным 200
             headers = {**headers, "Range": asked or "bytes=0-"}
-            up = await _http().get(direct, headers=headers)
+            up = await _http().get(direct, headers=headers, proxy=YT_PROXY or None)
             if up.status in (403, 410) and attempt == 0:
                 logging.info("webapp: ссылка на звук не открылась (%s), извлекаем заново: %s", up.status, url)
                 up.release()

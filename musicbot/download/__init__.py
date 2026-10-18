@@ -1,11 +1,11 @@
 """Скачивание: цепочка способов, проверка файла, запасные источники."""
 
-from .chain import download, init, youtube_block_left
+from .chain import download, init
 from .fallbacks import hitmo_download
 from .media import fetch_thumb, probe_duration
 from .models import MAX_SIZE, Downloaded, SearchResult
 from .urls import extract_url, resolve_short
-from .youtube import TOO_BIG, forget, stream_source, warm
+from .youtube import TOO_BIG, forget, stream_source, warm, youtube_block_left
 from .ytmusic import get_ytm, search, search_ytdlp_sync, small_thumb
 
 __all__ = [

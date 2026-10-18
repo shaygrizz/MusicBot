@@ -61,6 +61,13 @@ transfer itself (parallel ranges do not help, the limit is bandwidth). Everythin
 YouTube link extractions are limited to `YT_EXTRACT_PARALLEL` (3) at once: warming and prefetching request links in bursts, and
 too many raise the risk of the "not a bot" IP block.
 
+When YouTube does block the IP (`not a bot`), `download/youtube.py` keeps one shared flag for 2 minutes: downloads, warming,
+prefetching and the Mini App stop calling YouTube, and `search/fetch.py` goes straight to the fallback sources by name
+(hitmotop, SoundCloud, dydki; each file is length-checked, a wrong one means "try the next source"). When they fail too,
+YouTube gets one last attempt that ignores the flag, and the error names both reasons. An age gate or a missing format
+("Sign in to confirm your age", "Requested format is not available") is a per-video failure and never sets the flag.
+`YT_PROXY` and `cookies.txt` are the ways to get through a real block.
+
 A stream that started through the proxy keeps using it: the cached file is remuxed and its bytes differ, so a seek
 must not switch sources mid-play.
 

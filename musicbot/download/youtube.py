@@ -16,13 +16,56 @@ from .models import MAX_SIZE, SearchResult
 
 PARALLEL_PARTS = 6
 
+# YouTube закрыл IP сервера («not a bot»): ненадолго отключаем его для всех, чтобы не бить по закрытому адресу
+YT_BLOCK_TTL = 120  # секунд
+_blocked_until = 0.0
+
+# блокировка всего IP: только этот признак. «Sign in to confirm your age» — возрастное ограничение одного ролика,
+# оно IP не закрывает; а «Requested format is not available» лечится другим клиентом YouTube
+BOT_BLOCK_MARKERS = ("not a bot",)
+
+# ролик закрыт правообладателем, страной или удалён: другие «клиенты» YouTube не помогут, но сам YouTube не блокирует
+UNAVAILABLE_MARKERS = (
+    "Video unavailable",
+    "Private video",
+    "has been removed",
+    "no longer available",
+    "in your country",
+    "copyright",
+    "has been terminated",
+)
+
+BLOCKED_MESSAGE = "YouTube временно пропущен (недавняя блокировка IP)"
+
+# необязательный прокси для всего трафика YouTube (в том числе скачивания по прямой ссылке: она привязана к IP)
+YT_PROXY = os.getenv("YT_PROXY", "").strip()
+
+
+def block_youtube(seconds: float = YT_BLOCK_TTL) -> None:
+    global _blocked_until
+    _blocked_until = time.time() + seconds
+
+
+def youtube_block_left() -> float:
+    """Сколько секунд ещё пропускаем YouTube после блокировки IP («not a bot»); 0 — не пропускаем."""
+    return max(0.0, _blocked_until - time.time())
+
+
+def is_bot_block(message: str) -> bool:
+    return any(mk in message for mk in BOT_BLOCK_MARKERS)
+
+
+def is_unavailable(message: str) -> bool:
+    return any(mk in message for mk in UNAVAILABLE_MARKERS)
+
 
 def _fetch_range(url: str, headers: dict, a: int, b: int) -> bytes:
     """Один кусок файла; при сбое сети повторяем с нарастающей паузой (идея из TelegramMusicBot)."""
     last: Exception | None = None
+    proxies = {"http": YT_PROXY, "https": YT_PROXY} if YT_PROXY else None
     for attempt in range(3):
         try:
-            r = net.session.get(url, headers={**headers, "Range": f"bytes={a}-{b}"}, timeout=30)
+            r = net.session.get(url, headers={**headers, "Range": f"bytes={a}-{b}"}, timeout=30, proxies=proxies)
             r.raise_for_status()
             return r.content
         except Exception as e:
@@ -84,7 +127,9 @@ def youtube_opts(opts: dict) -> dict:
         out["cookiefile"] = str(COOKIES_FILE)
     if os.getenv("YTDLP_JS_RUNTIME"):  # в образе это Node.js
         out["js_runtimes"] = {os.environ["YTDLP_JS_RUNTIME"]: {}}
-    if FORCE_IPV4:
+    if YT_PROXY:
+        out["proxy"] = YT_PROXY
+    elif FORCE_IPV4:
         out["source_address"] = "0.0.0.0"
     return out
 
@@ -104,6 +149,8 @@ def _yt_info(url: str) -> dict:
     hit = _info_cache.get(url)
     if hit and time.time() - hit[0] < INFO_TTL:
         return hit[1]
+    if youtube_block_left():
+        raise RuntimeError(BLOCKED_MESSAGE)
     opts = youtube_opts(
         {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 12, "format": YT_AUDIO_FORMAT}
     )
@@ -111,8 +158,13 @@ def _yt_info(url: str) -> dict:
         hit = _info_cache.get(url)  # пока ждали очереди, ссылку мог достать другой поток
         if hit and time.time() - hit[0] < INFO_TTL:
             return hit[1]
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            if is_bot_block(str(e)):
+                block_youtube()  # прогрев и предзагрузка тоже узнают о блокировке и перестают бить по закрытому IP
+            raise
     if "entries" in info:
         info = info["entries"][0]
     if len(_info_cache) > 300:
@@ -138,6 +190,8 @@ def forget(url: str) -> None:
 async def warm(url: str) -> None:
     """Заранее достаём ссылку на звук: когда пользователь нажмёт на трек, этот шаг (2–3 с) уже сделан."""
     if "youtube.com" not in url and "youtu.be" not in url:
+        return
+    if youtube_block_left():
         return
     try:
         await asyncio.to_thread(_yt_info, url)
@@ -177,7 +231,9 @@ def fast_audio(url: str, workdir: Path) -> tuple[Path, dict]:
     return raw, info
 
 
-ALT_YT_CLIENTS = ["tv", "web_safari", "mweb", "ios"]
+# web_embedded добавлен ради возрастных ограничений; без PO-токена все запасные клиенты на обычном ролике отвечают
+# «format is not available», поэтому длинный список только удлинял бы путь ошибки
+ALT_YT_CLIENTS = ["tv", "web_embedded", "web_safari", "mweb", "ios"]
 
 TOO_BIG = "File exceeds 50 MB"
 
@@ -217,10 +273,3 @@ def ytdlp_run(
     if not media:
         raise RuntimeError("Не удалось получить файл")
     return media[0], info
-
-
-# блокировка всего IP: только эти признаки; одиночный 403/429 на одном ролике не повод отключать YouTube для всех песен
-BOT_BLOCK_MARKERS = ("not a bot", "Sign in to confirm")
-
-# ролик закрыт правообладателем или удалён: другие «клиенты» YouTube не помогут, но сам YouTube не блокирует
-UNAVAILABLE_MARKERS = ("Video unavailable", "blocked", "not available", "Private video", "removed", "copyright")
