@@ -223,6 +223,14 @@ async def fav_has(user_id: int, artist: str, title: str) -> bool:
         return await cur.fetchone() is not None
 
 
+async def fav_url(user_id: int, artist: str, title: str) -> str:
+    """Ссылка на источник, из которого добавлена песня: по ней её качают заново, а не подбирают версию по названию."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT url FROM favorites WHERE user_id=? AND key=?", (user_id, fav_key(artist, title)))
+        row = await cur.fetchone()
+    return (row[0] or "") if row else ""
+
+
 async def fav_add(user_id: int, artist: str, title: str, duration: int = 0, cover: str = "", url: str = "") -> None:
     await fav_add_many(user_id, [{"artist": artist, "title": title, "duration": duration, "cover": cover, "url": url}])
 
@@ -263,7 +271,9 @@ async def fav_remove(user_id: int, artist: str, title: str) -> None:
 
 async def get_play(play_id: int) -> dict | None:
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT user_id, title, artist, duration, cover FROM plays WHERE id=?", (play_id,))
+        cur = await db.execute(
+            "SELECT user_id, title, artist, duration, cover, url, kind FROM plays WHERE id=?", (play_id,)
+        )
         row = await cur.fetchone()
     if not row:
         return None
@@ -273,6 +283,8 @@ async def get_play(play_id: int) -> dict | None:
         "artist": row[2] or "",
         "duration": row[3] or 0,
         "cover": row[4] or "",
+        "url": row[5] or "",
+        "kind": row[6] or "",
     }
 
 
@@ -473,6 +485,19 @@ async def disliked_artists(user_id: int) -> set[str]:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT artist FROM disliked WHERE user_id=? AND until > ?", (user_id, int(time.time())))
         return {r[0] for r in await cur.fetchall()}
+
+
+async def known_songs(user_id: int, recent: int = 50) -> list[tuple[str, str]]:
+    """Песни, которые человек уже выбрал сам: всё избранное и последние прослушивания. Волна их не предлагает."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT artist, title FROM favorites WHERE user_id=?", (user_id,))
+        songs = await cur.fetchall()
+        cur = await db.execute(
+            "SELECT artist, title FROM plays WHERE user_id=? AND COALESCE(auto, 0) = 0 ORDER BY id DESC LIMIT ?",
+            (user_id, recent),
+        )
+        songs += await cur.fetchall()
+    return [(a or "", t or "") for a, t in songs]
 
 
 async def user_stats(user_id: int) -> dict:

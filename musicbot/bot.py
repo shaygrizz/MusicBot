@@ -796,9 +796,12 @@ async def on_favorite(cb: CallbackQuery):
         await db.fav_remove(uid, play["artist"], play["title"])
         now_fav, note = False, texts.say("fav_removed")
     else:
-        await db.fav_add(uid, play["artist"], play["title"], play["duration"], play["cover"])
+        src = (
+            play["url"] if play["kind"] == "audio" else ""
+        )  # ссылка, по которой песню скачали: качаем снова ту же версию
+        await db.fav_add(uid, play["artist"], play["title"], play["duration"], play["cover"], src)
         # заранее сохраняем звук на диск: дальше песня будет играть мгновенно и больше не скачивается заново
-        favcache.spawn(favcache.prefetch(uid, play["artist"], play["title"], play["duration"], play["cover"]))
+        favcache.spawn(favcache.prefetch(uid, play["artist"], play["title"], play["duration"], play["cover"], src))
         now_fav, note = True, texts.say("fav_added")
     await cb.answer(note)
     try:

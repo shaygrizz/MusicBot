@@ -25,7 +25,7 @@ from .. import favorites as favlib  # внутри make_app есть обраб�
 from ..download import Downloaded, SearchResult
 from ..download.youtube import YT_PROXY
 from ..search import fetch as fetch_mod
-from ..textutil import same_artist
+from ..textutil import core_title, latin, norm, same_artist
 
 INDEX = Path(__file__).parent / "static" / "index.html"
 INITDATA_MAX_AGE = 24 * 3600  # старше суток подпись не принимаем
@@ -212,16 +212,44 @@ def _wave_track(t: dict, because: str) -> dict:
     }
 
 
-def _deezer_wave(taste: list[tuple[str, int]], seen: set[str], skipped: set[str], n: int = WAVE_BATCH) -> list[dict]:
+def _song_index(songs) -> dict[str, list[str]]:
+    """Песни (исполнитель, название) -> название без пометок версии -> исполнители, у которых оно есть."""
+    index: dict[str, list[str]] = {}
+    for artist, title in songs:
+        index.setdefault(norm(core_title(title)), []).append(latin(artist))
+    return index
+
+
+def _known_song(index: dict[str, list[str]], artist: str, title: str) -> bool:
+    """Эта песня уже есть в index в любой версии записи: «Song», «Song (Radio Edit)», «Song - Remastered 2011»,
+    «Song (feat. X)» совпадают. Исполнитель сверяется нестрого: в избранном он бывает «A, B», а в Deezer просто «A».
+    Точный ключ избранного для этого узок: волна включала любимую песню другой версией."""
+    who = latin(artist)
+    return any(not who or not other or who in other or other in who for other in index.get(norm(core_title(title)), []))
+
+
+def _deezer_wave(
+    taste: list[tuple[str, int]],
+    seen: set[str],
+    skipped: set[str],
+    n: int = WAVE_BATCH,
+    avoid: dict[str, list[str]] | None = None,
+) -> list[dict]:
     """Партия песен для «Моей волны»: чаще берём любимого исполнителя, иногда (WAVE_RELATED_CHANCE) похожего на него.
-    Пропущенные исполнители в этой сессии выпадают, уже игравшие песни не повторяются."""
+    Пропущенные исполнители в этой сессии выпадают, уже игравшие песни не повторяются; avoid — _song_index песен,
+    которые человек уже выбрал сам (избранное, недавнее): их не предлагаем ни в какой версии."""
+    avoid = {k: list(v) for k, v in (avoid or {}).items()}
     pool = [(a, w) for a, w in taste if a.lower() not in skipped]
     allowed = _allowed_scripts(taste)
     out: list[dict] = []
     if not pool:
         chart = _deezer_chart()
         random.shuffle(chart)
-        return [t for t in chart if db.fav_key(t["artist"], t["title"]) not in seen][:n]
+        return [
+            t
+            for t in chart
+            if db.fav_key(t["artist"], t["title"]) not in seen and not _known_song(avoid, t["artist"], t["title"])
+        ][:n]
     deadline = time.monotonic() + WAVE_BUDGET
     for _ in range(n * 2):  # с запасом: часть попыток не даст новой песни
         if len(out) >= n or time.monotonic() > deadline:
@@ -248,10 +276,16 @@ def _deezer_wave(taste: list[tuple[str, int]], seen: set[str], skipped: set[str]
         except Exception as e:
             logging.info("волна: %s: %s", name, str(e)[:80])
             continue
-        fresh = [t for t in top if db.fav_key(t["artist"]["name"], t["title"]) not in seen]
+        fresh = [
+            t
+            for t in top
+            if db.fav_key(t["artist"]["name"], t["title"]) not in seen
+            and not _known_song(avoid, t["artist"]["name"], t["title"])
+        ]
         if fresh:
             track = _wave_track(random.choice(fresh[:12]), name)
             seen.add(db.fav_key(track["artist"], track["title"]))  # в одной партии одна песня не встречается дважды
+            avoid.update(_song_index([(track["artist"], track["title"])]))  # и другой её версией тоже
             out.append(track)
     return out
 
@@ -370,6 +404,27 @@ async def _get_file(uid: int, vid: str, r: SearchResult, background: bool = Fals
         inflight[key] = task
         task.add_done_callback(lambda _t: inflight.pop(key, None))
     return await asyncio.shield(task)  # отмена одного запроса не обрывает загрузку для остальных
+
+
+def _track_source(artist: str, title: str, duration: int, url: str) -> str:
+    """Ссылка, по которой /api/track качает песню: ролик YouTube или «ленивая» ссылка; остальное ищется по названию."""
+    return url if YT_WATCH_RE.match(url) or url.startswith("lazy://") else search.lazy_for(artist, title, duration)
+
+
+def _heard_version(
+    uid: int, vid: str, artist: str, title: str, duration: int, body: dict
+) -> tuple[str, Downloaded | None]:
+    """Откуда взята песня, которую человек слушает или смотрит в шторке: (ссылка источника, скачанный файл, если он ещё
+    лежит в памяти сервера). Для версии из шторки это её собственная ссылка, для песни плеера и волны — та же, по которой
+    её скачал /api/track."""
+    version = versions.get(vid)
+    if version and version[0] == uid:
+        src = version[2].url
+    else:
+        src = _track_source(artist, title, duration, str(body.get("url") or ""))
+        vid = "track:" + src
+    ready = _ready_file(uid, vid)
+    return src, ready[1] if ready else None
 
 
 async def _prefetch_version(uid: int, vid: str, r: SearchResult) -> None:
@@ -563,7 +618,14 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             raise web.HTTPForbidden(text="not a favorite")  # по этому адресу качаем только то, что в избранном
         try:
             token, path = await favcache.ensure(
-                user["id"], artist, title, int(body.get("duration") or 0), str(body.get("cover") or "")
+                user["id"],
+                artist,
+                title,
+                int(body.get("duration") or 0),
+                str(body.get("cover") or ""),
+                await db.fav_url(
+                    user["id"], artist, title
+                ),  # снова качаем ту версию, что добавили, а не подбираем новую
             )
         except Exception as e:
             logging.warning("webapp: избранное не скачалось %s - %s: %s", artist, title, str(e)[:150])
@@ -617,23 +679,19 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             cover = str(body.get("cover") or "")
             cover = cover if cover.startswith("https://") and len(cover) < 400 else ""
             duration = int(body.get("duration") or 0)
-            await db.fav_add(user["id"], artist, title, duration, cover)
-            # звук сохраняем на диск заранее: песня будет играть мгновенно и больше не скачивается заново
-            ready = next(
-                (
-                    d
-                    for u, _, v, d in files.values()
-                    if u == user["id"] and v == str(body.get("vid", "")) and d.path.exists()
-                ),
-                None,
-            )  # песню уже скачали в шторке: берём этот файл, а не качаем второй раз
-            if ready is not None and _norm_full(ready.title) == _norm_full(title):
+            # в избранное попадает именно то, что человек слушал: тот же файл и та же ссылка, а не новый подбор по названию
+            src, heard = _heard_version(user["id"], str(body.get("vid") or ""), artist, title, duration, body)
+            await db.fav_add(user["id"], artist, title, duration, cover, (heard.origin if heard else "") or src)
+            file = (
+                heard.path if heard else audiocache.path_for(src)
+            )  # шторка и плеер держат файл 15 минут, кэш звука дольше
+            if file is not None and file.exists():
                 try:
-                    await favcache.adopt(user["id"], artist, title, ready.path)
+                    await favcache.adopt(user["id"], artist, title, file)
                 except Exception:
                     logging.exception("webapp: файл не перенесён в избранное")
             if not favcache.has(user["id"], artist, title):
-                favcache.spawn(favcache.prefetch(user["id"], artist, title, duration, cover))
+                favcache.spawn(favcache.prefetch(user["id"], artist, title, duration, cover, src))
         elif op == "remove":
             await db.fav_remove(user["id"], artist, title)
         else:
@@ -652,8 +710,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         duration = int(body.get("duration") or 0)
         url = str(body.get("url") or "")
         # от страницы принимаем только ролик YouTube или «ленивую» ссылку на песню; остальное ищем по названию
-        if not (YT_WATCH_RE.match(url) or url.startswith("lazy://")):
-            url = search.lazy_for(artist, title, duration)
+        url = _track_source(artist, title, duration, url)
         cover = str(body.get("cover") or "")
         r = SearchResult(
             id="", title=title, artist=artist, duration=duration, url=url,
@@ -734,7 +791,8 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         taste = [(a, w) for a, w in await db.taste_artists(user["id"]) if a.lower() not in blocked]
         taste = taste or _seed_taste(texts.current())
         try:
-            items = await asyncio.to_thread(_deezer_wave, taste, seen, skipped, n)
+            avoid = _song_index(await db.known_songs(user["id"]))
+            items = await asyncio.to_thread(_deezer_wave, taste, seen, skipped, n, avoid)
         except Exception as e:
             logging.warning("webapp: волна не собралась: %s", str(e)[:120])
             raise web.HTTPBadGateway(text="wave failed")

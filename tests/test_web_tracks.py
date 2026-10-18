@@ -97,7 +97,7 @@ async def test_artist_songs_are_listed_to_pick_from(monkeypatch, result):
 async def test_wave_needs_signed_data_and_returns_a_batch(monkeypatch):
     seen_args = {}
 
-    def fake_wave(taste, seen, skipped, n=10):
+    def fake_wave(taste, seen, skipped, n=10, avoid=None):
         seen_args.update(seen=seen, skipped=skipped)
         return [{"artist": "Кино", "title": "Кукушка", "duration": 400, "cover": "", "because": "Кино"}]
 
@@ -107,8 +107,12 @@ async def test_wave_needs_signed_data_and_returns_a_batch(monkeypatch):
     async def nobody_disliked(user_id):
         return set()
 
+    async def no_known_songs(user_id):
+        return []
+
     monkeypatch.setattr(webapp.db, "taste_artists", fake_taste)
     monkeypatch.setattr(webapp.db, "disliked_artists", nobody_disliked)
+    monkeypatch.setattr(webapp.db, "known_songs", no_known_songs)
     monkeypatch.setattr(webapp, "_deezer_wave", fake_wave)
     c = await client()
     try:
@@ -166,15 +170,19 @@ async def test_new_user_gets_seed_artists_in_own_language(monkeypatch):
     async def no_taste(user_id, limit=20):
         return []
 
-    def fake_wave(taste, seen, skipped, n=10):
+    def fake_wave(taste, seen, skipped, n=10, avoid=None):
         got["taste"] = taste
         return []
 
     async def nobody_disliked(user_id):
         return set()
 
+    async def no_known_songs(user_id):
+        return []
+
     monkeypatch.setattr(webapp.db, "taste_artists", no_taste)
     monkeypatch.setattr(webapp.db, "disliked_artists", nobody_disliked)
+    monkeypatch.setattr(webapp.db, "known_songs", no_known_songs)
     monkeypatch.setattr(webapp, "_deezer_wave", fake_wave)
     c = await client()
     try:
@@ -224,3 +232,69 @@ def test_related_artists_in_a_foreign_script_are_left_out():
     assert webapp._script_ok("Баста", only_cyr) and not webapp._script_ok("宇多田ヒカル", only_cyr)
     assert not webapp._script_ok("Anitta", only_cyr)
     assert webapp._script_ok("Anitta", None)
+
+
+def test_wave_does_not_play_another_version_of_a_known_song(monkeypatch):
+    top = [
+        {"artist": {"name": "Muse"}, "title": "Hysteria (Radio Edit)", "duration": 227, "album": {}},
+        {"artist": {"name": "Muse"}, "title": "Hysteria - Remastered 2011", "duration": 227, "album": {}},
+        {"artist": {"name": "Muse"}, "title": "Starlight", "duration": 240, "album": {}},
+    ]
+
+    def fake_json(url):
+        if "search/artist" in url:
+            return {"data": [{"id": 1}]}
+        if url.endswith("/top?limit=25"):
+            return {"data": top}
+        return {"data": []}
+
+    monkeypatch.setattr(webapp, "_get_json", fake_json)
+    monkeypatch.setattr(webapp, "_dz_artist", {})
+    monkeypatch.setattr(webapp, "_dz_related", {})
+    monkeypatch.setattr(webapp, "WAVE_RELATED_CHANCE", 0)
+    avoid = webapp._song_index([("Muse, Someone", "Hysteria")])  # в избранном: два исполнителя и короткое название
+    for _ in range(20):
+        out = webapp._deezer_wave([("Muse", 3)], set(), set(), 3, avoid)
+        assert {t["title"] for t in out} == {"Starlight"}
+
+
+def test_song_versions_match_loosely_but_other_songs_do_not():
+    index = webapp._song_index([("Земфира", "Хочу")])
+    assert webapp._known_song(index, "Zemfira", "Хочу (Live)")
+    assert not webapp._known_song(index, "Zemfira", "Прости меня моя любовь")
+    assert not webapp._known_song(index, "Другой", "Хочу")
+
+
+async def test_favorite_keeps_the_exact_file_and_source_the_user_heard(monkeypatch, tmp_path):
+    from musicbot import favcache
+
+    asked = fake_fetch(monkeypatch, tmp_path)
+    monkeypatch.setattr(webapp.db, "DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(favcache, "CACHE_DIR", tmp_path / "fav")
+    await webapp.db.init_db()
+    ensured = []
+
+    async def ensure(user_id, artist, title, duration=0, cover="", url=""):
+        ensured.append(url)
+        return "tok", tmp_path / "x.m4a"
+
+    c = await client()
+    try:
+        head = {"X-Init-Data": init_data()}
+        song = {"artist": "Muse", "title": "Hysteria", "duration": 227}  # волна: у песни нет своей ссылки
+        r = await c.post("/api/track", json=song, headers=head)
+        assert r.status == 200
+        lazy = asked[0]
+        assert lazy.startswith("lazy://")
+        r = await c.post("/api/favorites", json={**song, "op": "add"}, headers=head)
+        assert r.status == 200
+        assert asked == [lazy]  # заново ничего не подбиралось
+        token = favcache.token_for(42, "Muse", "Hysteria")
+        assert favcache.find(token).read_bytes() == b"audio"  # тот самый файл, что играл
+        assert await webapp.db.fav_url(42, "Muse", "Hysteria") == lazy  # и его источник запомнен
+
+        monkeypatch.setattr(favcache, "ensure", ensure)
+        r = await c.post("/api/favplay", json=song, headers=head)
+        assert r.status == 200 and ensured == [lazy]  # при повторной загрузке качается тот же источник
+    finally:
+        await c.close()

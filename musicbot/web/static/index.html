@@ -679,7 +679,7 @@ async function toggleFav() {
   btns.forEach(b => { b.disabled = true; });
   try {
     const r = await post("/api/favorites", { op: isFav(it) ? "remove" : "add", artist: it.artist, title: it.title,
-      duration: it.duration || 0, cover: it.cover || "", vid: it.kind === "track" && it.url ? "track:" + it.url : "" });
+      duration: it.duration || 0, cover: it.cover || "", url: it.url || "" });
     state.favs = r.favorites; renderFavs();
   } catch (e) { player.els.msg.textContent = t("favFail"); }
   btns.forEach(b => { b.disabled = false; });
