@@ -172,6 +172,10 @@
   .favtools[hidden] { display: none; }
   .favtools .favsearch { margin-left: auto; margin-right: -12px; }
   .favfind { margin: 0 0 var(--s2); }
+  .favfind .field { border-color: transparent; border-radius: 22px; background: rgba(243, 239, 248, .08); outline: none; }
+  .favfind .field:focus { background: rgba(243, 239, 248, .14); }
+  .favfind .field::-webkit-search-cancel-button { display: none; }
+  .favsearch:focus-visible { outline: none; }
   .favfind[hidden] { display: none; }
   .favrow.now .nm { color: var(--rose); }
   .favrow.now .nm::before { content: "▶"; display: inline-block; width: 1.2em; font-size: .75em; vertical-align: .1em; }
