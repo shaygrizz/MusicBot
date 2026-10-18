@@ -45,7 +45,9 @@
   .backdrop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .24; }
   /* header */
   .letter { display: grid; grid-template-columns: 80px 1fr; gap: var(--s4); align-items: start; }
-  .letter .gem { width: 80px; height: 80px; }
+  .letter .gem { width: 80px; height: 80px; padding: 0; background: none; border-radius: 12px; overflow: hidden; }  /* фото без золотой рамки и срезанных углов */
+  .letter .cut8 { clip-path: none; }
+  .letter .gem > div { background: none; }
   .letter .gem img { object-position: center 20%; }
   h1 { margin: 0 0 var(--s2); font: 400 var(--t-h1)/1.1 var(--display); }
   .letter p { margin: 0; max-width: 40ch; color: var(--text2); }
@@ -478,12 +480,21 @@ async function post(path, body, signal) {
 }
 
 // images: full-screen background and small portrait next to the title
+// The picture chosen last time is remembered on this device, so the page opens with it at once instead of showing the
+// default one until the profile arrives from the server. Before the first visit nothing is shown rather than the wrong picture.
+const BG_DEFAULT = "/static/Diamond.jpg";
+function rememberedBg() { try { return localStorage.getItem("bg") || ""; } catch (e) { return ""; } }
 function backdrop() {
-  const box = $("div", "backdrop"), img = $("img");
-  box.setAttribute("aria-hidden", "true"); img.alt = ""; img.src = state.bg || "/static/Diamond.jpg";
+  const box = $("div", "backdrop"), img = $("img"), saved = rememberedBg();
+  box.setAttribute("aria-hidden", "true"); img.alt = "";
+  if (saved) img.src = saved;
   box.append(img); return box;
 }
-function setBackdrop() { const i = document.querySelector(".backdrop img"); if (i) i.src = state.bg || "/static/Diamond.jpg"; }
+function setBackdrop() {
+  const i = document.querySelector(".backdrop img"), src = state.bg || BG_DEFAULT;
+  if (i && i.getAttribute("src") !== src) i.src = src;
+  try { localStorage.setItem("bg", src); } catch (e) { /* private window: the default flashes once, nothing breaks */ }
+}
 function avatar() {
   const btn = $("button", "avatar"), g = $("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
   btn.setAttribute("aria-label", t("editProfile"));
