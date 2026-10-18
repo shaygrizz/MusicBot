@@ -605,7 +605,7 @@ function recent(items, onPick) {
 
 // songs from the dashboard lists play through the same bottom player as favorites
 const asTracks = list => list.map(x => ({ title: x.title, artist: x.artist || "", duration: x.duration || 0,
-  url: x.url || "", cover: x.cover || "", kind: "track", because: x.because || "" }));
+  url: x.url || "", cover: x.cover || "", kind: "track", because: x.because || "", auto: !!x.auto }));
 
 // an artist from Top artists: show their songs and let the user pick one
 async function openArtist(name) {
@@ -957,7 +957,7 @@ function trackUrl(i, bg = false) {
   if (player.cache[i] && Date.now() - player.cache[i].at > URL_FRESH) delete player.cache[i];
   if (!player.cache[i]) {
     const p = (it.kind === "fav" ? post("/api/favplay", body, signal)
-      : post("/api/track", { ...body, url: it.url || "", prefetch: bg }, signal)).then(r => r.url);
+      : post("/api/track", { ...body, url: it.url || "", prefetch: bg, auto: !!it.auto }, signal)).then(r => r.url);
     p.at = Date.now();
     player.cache[i] = p;
   }
@@ -1067,7 +1067,7 @@ async function preloadSaved(s) {
   const it = s.items[s.i];
   if (!it) return;
   try {  // no abort signal: starting the other queue must not cancel this
-    const r = await post("/api/track", { artist: it.artist, title: it.title, duration: it.duration || 0, cover: it.cover || "", url: it.url || "" });
+    const r = await post("/api/track", { artist: it.artist, title: it.title, duration: it.duration || 0, cover: it.cover || "", url: it.url || "", auto: !!it.auto });
     if (waveSaved !== s) return;
     const blob = await (await fetch(r.url)).blob();
     if (waveSaved === s) s.blobUrl = URL.createObjectURL(blob);

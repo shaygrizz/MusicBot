@@ -56,6 +56,7 @@ MIGRATIONS = [
     ("users", "bg_token", "TEXT"),
     ("users", "lang", "TEXT"),  # язык бота и мини-аппа: en, ru, it; пусто — ещё не выбирал
     ("plays", "cover", "TEXT"),
+    ("plays", "auto", "INTEGER"),  # 1 — песня сыграна из рекомендаций или волны, а не выбрана самим пользователем
     ("favorites", "url", "TEXT"),  # ссылка на источник (песня из плейлиста YouTube): качаем по ней, без поиска
 ]
 
@@ -310,14 +311,23 @@ async def set_search(key: str, data: str, keep: int = 5000) -> None:
 
 
 async def log_play(
-    user_id: int, title: str, artist: str, duration: int, source: str, url: str, kind: str, cover: str = ""
+    user_id: int,
+    title: str,
+    artist: str,
+    duration: int,
+    source: str,
+    url: str,
+    kind: str,
+    cover: str = "",
+    auto: bool = False,
 ) -> int:
-    """Записывает прослушивание и возвращает его id (на него ссылается кнопка «в избранное»)."""
+    """Записывает прослушивание и возвращает его id (на него ссылается кнопка «в избранное»).
+    auto — песню подобрали рекомендации или волна: в историю она попадает, но вкус пользователя не определяет."""
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "INSERT INTO plays(user_id, title, artist, duration, source, url, kind, ts, cover) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (user_id, title, artist, duration, source, url, kind, int(time.time()), cover),
+            "INSERT INTO plays(user_id, title, artist, duration, source, url, kind, ts, cover, auto) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (user_id, title, artist, duration, source, url, kind, int(time.time()), cover, int(auto)),
         )
         await db.commit()
         return cur.lastrowid
@@ -382,24 +392,19 @@ async def dashboard(user_id: int) -> dict:
     }
 
 
-async def top_artist_names(user_id: int, limit: int = 3) -> list[str]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            "SELECT artist FROM plays WHERE user_id=? AND artist != '' GROUP BY artist ORDER BY COUNT(*) DESC LIMIT ?",
-            (user_id, limit),
-        )
-        return [r[0] for r in await cur.fetchall()]
+TASTE_MIN_WEIGHT = 2  # одно случайное прослушивание вкусом не считается: нужно два или песня в избранном
 
 
 async def taste_artists(user_id: int, limit: int = 20) -> list[tuple[str, int]]:
-    """Исполнители пользователя с весом для «Моей волны»: прослушивание весит 1, песня в избранном — 3."""
+    """Исполнители пользователя с весом для рекомендаций и «Моей волны»: прослушивание весит 1, песня в избранном — 3.
+    Песни, которые подобрали сами рекомендации, не считаются, иначе чужой случайный трек сам становится вкусом."""
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
             "SELECT artist, SUM(w) FROM ("
-            " SELECT artist, 1 AS w FROM plays WHERE user_id=? AND artist != ''"
+            " SELECT artist, 1 AS w FROM plays WHERE user_id=? AND artist != '' AND COALESCE(auto, 0) = 0"
             " UNION ALL SELECT artist, 3 AS w FROM favorites WHERE user_id=? AND artist != ''"
-            ") GROUP BY LOWER(artist) ORDER BY 2 DESC LIMIT ?",
-            (user_id, user_id, limit),
+            ") GROUP BY LOWER(artist) HAVING SUM(w) >= ? ORDER BY 2 DESC LIMIT ?",
+            (user_id, user_id, TASTE_MIN_WEIGHT, limit),
         )
         return [(a, int(w)) for a, w in await cur.fetchall()]
 

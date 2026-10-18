@@ -83,6 +83,7 @@ def _deezer_recs(artists: list[str]) -> list[dict]:
                             "duration": int(top[0].get("duration") or 0),
                             "cover": (top[0].get("album") or {}).get("cover_medium", ""),
                             "because": name,
+                            "auto": True,
                         }
                     )
         except Exception as e:
@@ -99,20 +100,54 @@ def _deezer_chart() -> list[dict]:
             "duration": int(t.get("duration") or 0),
             "cover": (t.get("album") or {}).get("cover_medium", ""),
             "because": "",
+            "auto": True,
         }
         for t in data
     ]
 
 
-async def _recs(user_id: int) -> list[dict]:
+# Пока у человека нет вкуса (новый пользователь), волна и рекомендации идут от этих исполнителей на его языке.
+# Мировой чарт Deezer для этого не годится: в нём бывают песни любой страны, например бразильские хиты.
+SEED_ARTISTS = {
+    "ru": ["Макс Корж", "Скриптонит", "Монеточка", "Баста", "Zivert", "Мот", "Нервы", "Земфира"],
+    "it": [
+        "Måneskin",
+        "Sfera Ebbasta",
+        "Marco Mengoni",
+        "Mahmood",
+        "Annalisa",
+        "Elodie",
+        "Fabri Fibra",
+        "Laura Pausini",
+    ],
+    "en": [
+        "The Weeknd",
+        "Dua Lipa",
+        "Coldplay",
+        "Billie Eilish",
+        "Imagine Dragons",
+        "Ed Sheeran",
+        "Taylor Swift",
+        "Queen",
+    ],
+}
+
+
+def _seed_taste(lang: str) -> list[tuple[str, int]]:
+    return [(a, 1) for a in SEED_ARTISTS.get(lang) or SEED_ARTISTS["en"]]
+
+
+async def _recs(user_id: int, lang: str) -> list[dict]:
     cached = _recs_cache.get(user_id)
     if cached and time.time() - cached[0] < RECS_TTL:
         return cached[1]
-    artists = await db.top_artist_names(user_id, 3)
-    recs = await asyncio.to_thread(_deezer_recs, artists) if artists else []
+    artists = [a for a, _ in await db.taste_artists(user_id, 3)]
+    if not artists:
+        artists = random.sample([a for a, _ in _seed_taste(lang)], 3)
+    recs = await asyncio.to_thread(_deezer_recs, artists)
     if not recs:
         try:
-            recs = await asyncio.to_thread(_deezer_chart)
+            recs = await asyncio.to_thread(_deezer_chart)  # последнее средство, если Deezer не отдал похожих
         except Exception:
             recs = []
     _recs_cache[user_id] = (time.time(), recs)
@@ -142,6 +177,7 @@ def _wave_track(t: dict, because: str) -> dict:
         "duration": int(t.get("duration") or 0),
         "cover": (t.get("album") or {}).get("cover_medium", ""),
         "because": because,
+        "auto": True,
     }
 
 
@@ -592,7 +628,17 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             raise web.HTTPBadGateway(text="download failed")
         if tok not in played:
             played.add(tok)
-            await db.log_play(user["id"], d.title, d.artist, d.duration, d.source, url, "audio", r.thumb_url)
+            await db.log_play(
+                user["id"],
+                d.title,
+                d.artist,
+                d.duration,
+                d.source,
+                url,
+                "audio",
+                r.thumb_url,
+                auto=bool(body.get("auto")),
+            )
         return web.json_response({"url": f"/api/file/{tok}"})
 
     async def artist_songs(request: web.Request):
@@ -615,7 +661,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
 
     async def recs(request: web.Request):
         user = await authed_user(request)
-        return web.json_response({"items": await _recs(user["id"])})
+        return web.json_response({"items": await _recs(user["id"], texts.current())})
 
     async def wave(request: web.Request):
         """«Моя волна»: следующая партия песен по вкусу. Страница присылает уже игравшие песни и пропущенных исполнителей."""
@@ -624,7 +670,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         seen = {str(k)[:300] for k in body.get("seen", [])[:500]}
         skipped = {str(a).lower()[:100] for a in body.get("skipped", [])[:50]}
         n = min(max(int(body.get("n") or WAVE_BATCH), 1), WAVE_BATCH)  # первая партия мала: музыка стартует быстрее
-        taste = await db.taste_artists(user["id"])
+        taste = await db.taste_artists(user["id"]) or _seed_taste(texts.current())
         try:
             items = await asyncio.to_thread(_deezer_wave, taste, seen, skipped, n)
         except Exception as e:

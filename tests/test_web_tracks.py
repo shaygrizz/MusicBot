@@ -141,3 +141,39 @@ def test_wave_skips_played_songs_and_skipped_artists(monkeypatch):
     assert out == []  # Muse уже играла, Abba пропущена
     out = webapp._deezer_wave([("Muse", 5), ("Abba", 1)], set(), {"abba"})
     assert {t["title"] for t in out} == {"Hysteria"}
+
+
+async def test_taste_ignores_auto_plays_and_one_off_plays(monkeypatch, tmp_path):
+    monkeypatch.setattr(webapp.db, "DB_PATH", str(tmp_path / "t.db"))
+    await webapp.db.init_db()
+    log = webapp.db.log_play
+    await log(1, "Song", "Once", 200, "ytm", "u", "audio")  # одно прослушивание: ещё не вкус
+    await log(1, "A", "Twice", 200, "ytm", "u", "audio")
+    await log(1, "B", "Twice", 200, "ytm", "u", "audio")
+    for i in range(5):  # песни, которые подобрала волна, вкус не определяют
+        await log(1, f"W{i}", "Brazil", 200, "ytm", "u", "audio", auto=True)
+    await webapp.db.fav_add(1, "Fav", "Loved", 200)
+    assert await webapp.db.taste_artists(1) == [("Fav", 3), ("Twice", 2)]
+
+
+async def test_new_user_gets_seed_artists_in_own_language(monkeypatch):
+    got = {}
+
+    async def no_taste(user_id, limit=20):
+        return []
+
+    def fake_wave(taste, seen, skipped, n=10):
+        got["taste"] = taste
+        return []
+
+    monkeypatch.setattr(webapp.db, "taste_artists", no_taste)
+    monkeypatch.setattr(webapp, "_deezer_wave", fake_wave)
+    c = await client()
+    try:
+        await c.post("/api/wave", json={}, headers={"X-Init-Data": init_data()})
+    finally:
+        await c.close()
+    assert {a for a, _ in got["taste"]} <= set(webapp.SEED_ARTISTS["en"]) | set(webapp.SEED_ARTISTS["ru"]) | set(
+        webapp.SEED_ARTISTS["it"]
+    )
+    assert got["taste"]
