@@ -170,6 +170,9 @@
   /* над списком слева: «Mix» и повтор; сдвиг влево ставит значок вровень с текстом (значок 24 в кнопке 48) */
   .favtools { display: flex; gap: var(--s1); margin: 0 0 var(--s1) -12px; }
   .favtools[hidden] { display: none; }
+  .favtools .favsearch { margin-left: auto; margin-right: -12px; }
+  .favfind { margin: 0 0 var(--s2); }
+  .favfind[hidden] { display: none; }
   .favrow.now .nm { color: var(--rose); }
   .favrow.now .nm::before { content: "▶"; display: inline-block; width: 1.2em; font-size: .75em; vertical-align: .1em; }
 
@@ -336,7 +339,7 @@ const I18N = {
     activityAria: "Activity over the last 30 days", ago30: "30 days ago", today: "Today", clockAria: "Listening by hour of day",
     unknownArtist: "Unknown artist", playItem: "Play {title}, {artist}",
     songs: "Songs", findingSongs: "Finding songs…", noSongs: "No songs found for this artist.", songsFail: "Could not load songs. Try again.",
-    noTracks: "No tracks yet.", lyrics: "Lyrics", lyricsNone: "No lyrics for this song", closeLyrics: "Close lyrics", favFail: "Could not update favorites.", favRemove: "Remove from favorites", favAdd: "Add to favorites",
+    noTracks: "No tracks yet.", searchFavs: "Search favorites", noMatches: "Nothing found in favorites.", lyrics: "Lyrics", lyricsNone: "No lyrics for this song", closeLyrics: "Close lyrics", favFail: "Could not update favorites.", favRemove: "Remove from favorites", favAdd: "Add to favorites",
     playFavs: "Play favorites ({n})", shuffle: "Shuffle", repeat: "Repeat this track", mix: "Mix",
     mute: "Mute", unmute: "Unmute", volume: "Volume", closePlayer: "Close player", minPlayer: "Minimize player",
     expandPlayer: "Expand player", play: "Play", pause: "Pause", prevTrack: "Previous track", nextTrack: "Next track", seek: "Seek",
@@ -376,7 +379,7 @@ const I18N = {
     activityAria: "Активность за последние 30 дней", ago30: "30 дней назад", today: "Сегодня", clockAria: "Прослушивание по часам суток",
     unknownArtist: "Неизвестный исполнитель", playItem: "Включить {title}, {artist}",
     songs: "Песни", findingSongs: "Ищу песни…", noSongs: "Песен этого исполнителя не найдено.", songsFail: "Не удалось загрузить песни. Попробуйте ещё раз.",
-    noTracks: "Пока нет треков.", lyrics: "Текст песни", lyricsNone: "Для этой песни нет текста", closeLyrics: "Закрыть текст", favFail: "Не удалось обновить избранное.", favRemove: "Убрать из избранного", favAdd: "В избранное",
+    noTracks: "Пока нет треков.", searchFavs: "Поиск по избранному", noMatches: "В избранном ничего не найдено.", lyrics: "Текст песни", lyricsNone: "Для этой песни нет текста", closeLyrics: "Закрыть текст", favFail: "Не удалось обновить избранное.", favRemove: "Убрать из избранного", favAdd: "В избранное",
     playFavs: "Включить избранное ({n})", shuffle: "Вперемешку", repeat: "Повторять этот трек", mix: "Вперемешку",
     mute: "Выключить звук", unmute: "Включить звук", volume: "Громкость", closePlayer: "Закрыть плеер", minPlayer: "Свернуть плеер",
     expandPlayer: "Развернуть плеер", play: "Играть", pause: "Пауза", prevTrack: "Предыдущий трек", nextTrack: "Следующий трек", seek: "Перемотка",
@@ -417,7 +420,7 @@ const I18N = {
     activityAria: "Attività degli ultimi 30 giorni", ago30: "30 giorni fa", today: "Oggi", clockAria: "Ascolto per ora del giorno",
     unknownArtist: "Artista sconosciuto", playItem: "Riproduci {title}, {artist}",
     songs: "Brani", findingSongs: "Cerco i brani…", noSongs: "Nessun brano trovato per questo artista.", songsFail: "Impossibile caricare i brani. Riprova.",
-    noTracks: "Ancora nessun brano.", lyrics: "Testo", lyricsNone: "Nessun testo per questo brano", closeLyrics: "Chiudi il testo", favFail: "Impossibile aggiornare i preferiti.", favRemove: "Rimuovi dai preferiti", favAdd: "Aggiungi ai preferiti",
+    noTracks: "Ancora nessun brano.", searchFavs: "Cerca nei preferiti", noMatches: "Nessun risultato nei preferiti.", lyrics: "Testo", lyricsNone: "Nessun testo per questo brano", closeLyrics: "Chiudi il testo", favFail: "Impossibile aggiornare i preferiti.", favRemove: "Rimuovi dai preferiti", favAdd: "Aggiungi ai preferiti",
     playFavs: "Riproduci i preferiti ({n})", shuffle: "Casuale", repeat: "Ripeti questo brano", mix: "Casuale",
     mute: "Disattiva audio", unmute: "Attiva audio", volume: "Volume", closePlayer: "Chiudi il player", minPlayer: "Riduci il player",
     expandPlayer: "Espandi il player", play: "Riproduci", pause: "Pausa", prevTrack: "Brano precedente", nextTrack: "Brano successivo", seek: "Posizione",
@@ -679,9 +682,11 @@ function gem(url) {
 
 // a tap on a saved song plays it right away (the saved original, no version search), then the rest of the list
 function favList() {
-  const wrap = $("div", "favlist");
+  const wrap = $("div", "favlist"), q = norm(favFind.q);
   if (!state.favs.length) { wrap.append($("p", "note", t("noTracks"))); return wrap; }
+  if (q && !state.favs.some(f => norm(f.title + f.artist).includes(q))) { wrap.append($("p", "note", t("noMatches"))); return wrap; }
   state.favs.forEach((f, i) => {
+    if (q && !norm(f.title + f.artist).includes(q)) return;  // search only looks through the saved songs; i stays the place in the whole list
     const b = $("button", "favrow"), box = $("div", "nm");
     box.append(document.createTextNode(f.title), $("span", "sb", f.artist || t("unknownArtist")));
     b.append(box, $("span", "ct", mmss(f.duration)));
@@ -692,12 +697,24 @@ function favList() {
   });
   return wrap;
 }
+// search over the saved songs: a button at the right end of the tools row opens a field above the list
+const favFind = { q: "", open: false };
 function favBox() {
-  const box = $("div"), tools = $("div", "favtools"), list = $("div");
+  const box = $("div"), tools = $("div", "favtools"), list = $("div"), find = $("div", "favfind");
+  const lens = iconButton("search", t("searchFavs"), "tog favsearch"), field = $("input", "field");
   tools.id = "favtools"; tools.hidden = !state.favs.length;
-  tools.append(mixButton(), repeatButton());
+  field.type = "search"; field.autocomplete = "off"; field.placeholder = t("searchFavs"); field.setAttribute("aria-label", t("searchFavs"));
+  field.value = favFind.q; find.id = "favfind"; find.hidden = !favFind.open || !state.favs.length; find.append(field);
+  lens.setAttribute("aria-pressed", favFind.open ? "true" : "false");
+  lens.onclick = () => {
+    favFind.open = !favFind.open; lens.setAttribute("aria-pressed", favFind.open ? "true" : "false");
+    find.hidden = !favFind.open;
+    if (favFind.open) field.focus(); else if (favFind.q) { favFind.q = ""; field.value = ""; renderFavs(); }  // closing clears the search
+  };
+  field.oninput = () => { favFind.q = field.value; document.getElementById("favs").replaceChildren(favList()); markNow(); };
+  tools.append(mixButton(), repeatButton(), lens);
   list.id = "favs"; list.append(favList());
-  box.append(tools, list);
+  box.append(tools, find, list);
   return box;
 }
 function renderFavs() {
@@ -705,6 +722,8 @@ function renderFavs() {
   if (box) box.replaceChildren(favList());
   const tools = document.getElementById("favtools");
   if (tools) tools.hidden = !state.favs.length;
+  const find = document.getElementById("favfind");
+  if (find) find.hidden = !favFind.open || !state.favs.length;
   fillQuick(document.getElementById("quick"));
   markNow();
   syncStar();
@@ -774,6 +793,7 @@ function icon(name) {
     dislike: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10zM4 4l16 16",
     more: "M5 12h.01M12 12h.01M19 12h.01",
     lyrics: "M4 6h7M7.5 6v10M14 9h6M14 13h6M11 17.5h9",
+    search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM16 16l4.5 4.5",
     volume: "M4 10v4h3l4 3V7l-4 3zM15 9.5a3.5 3.5 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10",
     muted: "M4 10v4h3l4 3V7l-4 3zM16 9.5l5 5M21 9.5l-5 5",
     wave: "M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4",
