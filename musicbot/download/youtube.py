@@ -12,9 +12,10 @@ from pathlib import Path
 import yt_dlp
 
 from .. import net, paths
-from .models import MAX_SIZE, SearchResult
+from .models import SearchResult, download_cap
 
 PARALLEL_PARTS = 6
+PARALLEL_MAX = 100 * 1024 * 1024  # крупнее файл в памяти не собираем
 
 
 def _fetch_range(url: str, headers: dict, a: int, b: int) -> bytes:
@@ -153,6 +154,8 @@ def fast_audio(url: str, workdir: Path) -> tuple[Path, dict]:
     size = info.get("filesize") or info.get("filesize_approx")
     if not direct or not size or info.get("protocol") not in ("https", "http"):
         raise RuntimeError("нужна обычная загрузка")
+    if size > PARALLEL_MAX:  # части собираются в памяти: большой файл (микс) пусть идёт через yt-dlp на диск
+        raise RuntimeError("нужна обычная загрузка")
     headers = dict(info.get("http_headers") or {})
     step = size // PARALLEL_PARTS + 1
     ranges = [(i * step, min(size - 1, (i + 1) * step - 1)) for i in range(PARALLEL_PARTS) if i * step < size]
@@ -191,7 +194,7 @@ def ytdlp_run(
         "noprogress": True,
         "noplaylist": True,
         "outtmpl": str(workdir / "%(id)s.%(ext)s"),
-        "max_filesize": MAX_SIZE * 4,
+        "max_filesize": download_cap(),
         "http_chunk_size": 10 * 1024 * 1024,
         "concurrent_fragment_downloads": 8,
         "retries": 3,

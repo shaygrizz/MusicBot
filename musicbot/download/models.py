@@ -6,6 +6,23 @@ from pathlib import Path
 
 MAX_SIZE = 49 * 1024 * 1024  # лимит Telegram для ботов ~50 МБ
 
+_limit = MAX_SIZE
+
+
+def size_limit() -> int:
+    """Наибольший файл, который мы готовы отдать: 49 МБ, а если работает юзербот — USERBOT_MAX_MB."""
+    return _limit
+
+
+def set_size_limit(value: int) -> None:
+    global _limit
+    _limit = max(MAX_SIZE, value)
+
+
+def download_cap() -> int:
+    """Предел для yt-dlp: с запасом, потому что после перекодирования в mp3 файл бывает меньше."""
+    return _limit * 4 if _limit == MAX_SIZE else _limit * 2
+
 
 @dataclass
 class SearchResult:

@@ -25,7 +25,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from . import db, download, favcache, favorites, paths, playlist_bot, recognize, restore, search, texts, tunnel
+from . import db, download, favcache, favorites, paths, playlist_bot, recognize, restore, search, texts, tunnel, userbot
 from .access import ALLOWED, allowed
 from .web import app as webapp
 
@@ -724,11 +724,18 @@ async def on_download(cb: CallbackQuery, bot: Bot):
                 d = await download.download(url, kind, meta)
             try:
                 thumb = FSInputFile(d.thumb) if d.thumb else None
+                media = FSInputFile(d.path)
+                if (
+                    d.path.stat().st_size > download.MAX_SIZE
+                ):  # бот такое не загрузит: заливает агент, бот шлёт по file_id
+                    await status.edit_text(texts.say("uploading_big"))
+                    media = await userbot.upload(kind, d.path, d.title, d.artist, d.duration, d.thumb)
+                    thumb = None
                 play_id = await db.log_play(cb.from_user.id, d.title, d.artist, d.duration, d.source, url, kind, cover)
                 if kind == "audio":
                     sent = await bot.send_audio(
                         cb.message.chat.id,
-                        FSInputFile(d.path),
+                        media,
                         title=d.title,
                         performer=d.artist,
                         duration=d.duration,
@@ -739,7 +746,7 @@ async def on_download(cb: CallbackQuery, bot: Bot):
                 else:
                     sent = await bot.send_video(
                         cb.message.chat.id,
-                        FSInputFile(d.path),
+                        media,
                         caption=d.title[:200],
                         duration=d.duration,
                         thumbnail=thumb,
@@ -795,6 +802,7 @@ async def main():
     bot = Bot(TOKEN)
     dp = Dispatcher()
     dp.update.outer_middleware(LangMiddleware())
+    dp.include_router(userbot.router)  # первым: файлы агента с метками не должны попасть в другие обработчики
     dp.include_router(playlist_bot.router)  # раньше общего: ссылки на плейлисты и пересланные песни
     dp.include_router(router)
     me = await bot.get_me()
@@ -821,9 +829,11 @@ async def main():
     except Exception:
         logging.exception("не удалось обновить описание бота")
     runner, tunnel_proc = await setup_webapp(bot, me.username)
+    await userbot.start(bot)  # без USERBOT_* в окружении ничего не делает
     try:
         await dp.start_polling(bot)
     finally:
+        await userbot.stop()
         if tunnel_proc and tunnel_proc.returncode is None:
             tunnel_proc.terminate()
         await runner.cleanup()  # закрывает и общий ClientSession мини-аппа (on_cleanup)
