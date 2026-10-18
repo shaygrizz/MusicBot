@@ -61,9 +61,35 @@ def _get_json(url: str):
     return net.get_json(url)
 
 
-def _deezer_recs(artists: list[str]) -> list[dict]:
+def _script(text: str) -> str:
+    """Основной алфавит названия: cyr, lat или other (иероглифы, арабица и прочее); пустая строка, если букв нет."""
+    count = {"cyr": 0, "lat": 0, "other": 0}
+    for ch in text:
+        if ch.isalpha():
+            o = ord(ch)
+            count["cyr" if 0x400 <= o <= 0x52F else "lat" if o < 0x250 else "other"] += 1
+    best = max(count, key=count.get)
+    return best if count[best] else ""
+
+
+def _allowed_scripts(taste: list[tuple[str, float]]) -> set[str] | None:
+    """Алфавиты, в которых человек уже слушает (не меньше 15% веса вкуса); похожих исполнителей в остальных не
+    предлагаем: слушающему русский рэп не приходят иероглифы. None — вкуса нет, фильтровать нечем."""
+    weight: dict[str, float] = {}
+    for name, w in taste:
+        if sc := _script(name):
+            weight[sc] = weight.get(sc, 0) + w
+    total = sum(weight.values())
+    return {sc for sc, w in weight.items() if w >= 0.15 * total} if total else None
+
+
+def _script_ok(name: str, allowed: set[str] | None) -> bool:
+    return allowed is None or _script(name) in ("", *allowed)
+
+
+def _deezer_recs(artists: list[str], allowed: set[str] | None = None, blocked: set[str] = frozenset()) -> list[dict]:
     """Рекомендации: у любимых исполнителей находим похожих и берём их главный трек."""
-    out, seen = [], {a.lower() for a in artists}
+    out, seen = [], {a.lower() for a in artists} | blocked
     for name in artists:
         try:
             found = _get_json("https://api.deezer.com/search/artist?limit=1&q=" + urllib.parse.quote(name))
@@ -71,7 +97,7 @@ def _deezer_recs(artists: list[str]) -> list[dict]:
                 continue
             related = _get_json(f"https://api.deezer.com/artist/{found['data'][0]['id']}/related?limit=6")
             for rel in related.get("data", []):
-                if rel["name"].lower() in seen:
+                if rel["name"].lower() in seen or not _script_ok(rel["name"], allowed):
                     continue
                 seen.add(rel["name"].lower())
                 top = _get_json(f"https://api.deezer.com/artist/{rel['id']}/top?limit=1").get("data", [])
@@ -141,10 +167,13 @@ async def _recs(user_id: int, lang: str) -> list[dict]:
     cached = _recs_cache.get(user_id)
     if cached and time.time() - cached[0] < RECS_TTL:
         return cached[1]
-    artists = [a for a, _ in await db.taste_artists(user_id, 3)]
+    blocked = await db.disliked_artists(user_id)
+    taste = [(a, w) for a, w in await db.taste_artists(user_id) if a.lower() not in blocked]
+    artists = [a for a, _ in taste[:3]]
     if not artists:
-        artists = random.sample([a for a, _ in _seed_taste(lang)], 3)
-    recs = await asyncio.to_thread(_deezer_recs, artists)
+        taste = _seed_taste(lang)
+        artists = random.sample([a for a, _ in taste], 3)
+    recs = await asyncio.to_thread(_deezer_recs, artists, _allowed_scripts(taste), blocked)
     if not recs:
         try:
             recs = await asyncio.to_thread(_deezer_chart)  # последнее средство, если Deezer не отдал похожих
@@ -155,6 +184,8 @@ async def _recs(user_id: int, lang: str) -> list[dict]:
 
 
 WAVE_BATCH = 10
+WAVE_RELATED_CHANCE = 0.3  # как часто вместо любимого исполнителя берём похожего: чем больше, тем дальше от вкуса
+WAVE_RELATED_TAKE = 6  # из списка похожих Deezer берём только самых близких
 WAVE_BUDGET = (
     8  # секунд на сборку партии: Deezer отвечает по одному запросу на песню, медленный ответ не должен вешать страницу
 )
@@ -182,9 +213,10 @@ def _wave_track(t: dict, because: str) -> dict:
 
 
 def _deezer_wave(taste: list[tuple[str, int]], seen: set[str], skipped: set[str], n: int = WAVE_BATCH) -> list[dict]:
-    """Партия песен для «Моей волны»: с вероятностью 1/2 берём любимого исполнителя, иначе похожего на него.
+    """Партия песен для «Моей волны»: чаще берём любимого исполнителя, иногда (WAVE_RELATED_CHANCE) похожего на него.
     Пропущенные исполнители в этой сессии выпадают, уже игравшие песни не повторяются."""
     pool = [(a, w) for a, w in taste if a.lower() not in skipped]
+    allowed = _allowed_scripts(taste)
     out: list[dict] = []
     if not pool:
         chart = _deezer_chart()
@@ -199,12 +231,16 @@ def _deezer_wave(taste: list[tuple[str, int]], seen: set[str], skipped: set[str]
             aid = _dz_artist_id(name)
             if aid is None:
                 continue
-            if random.random() < 0.5:
+            if random.random() < WAVE_RELATED_CHANCE:
                 if aid not in _dz_related:
                     _dz_related[aid] = _get_json(f"https://api.deezer.com/artist/{aid}/related?limit=12").get(
                         "data", []
                     )
-                related = [r for r in _dz_related[aid] if r["name"].lower() not in skipped]
+                related = [
+                    r
+                    for r in _dz_related[aid][:WAVE_RELATED_TAKE]
+                    if r["name"].lower() not in skipped and _script_ok(r["name"], allowed)
+                ]
                 if related:
                     rel = random.choice(related)
                     aid, name = rel["id"], rel["name"]
@@ -270,6 +306,7 @@ versions: dict[str, tuple[int, float, SearchResult]] = {}  # vid -> (user_id, в
 files: dict[str, tuple[int, float, str, Downloaded]] = {}  # токен -> (user_id, время, vid, файл)
 streams: dict[str, tuple[int, float, str]] = {}  # токен потока -> (user_id, время, vid)
 played: set[str] = set()  # токены, по которым прослушивание уже записано
+play_ids: dict[str, int] = {}  # токен -> id записи в plays (страница по нему присылает, сколько песни послушали)
 proxied: set[str] = set()  # потоки, начатые через прокси YouTube
 inflight: dict[tuple[int, str], asyncio.Task] = {}
 _sem: asyncio.Semaphore | None = None
@@ -287,6 +324,7 @@ def _purge() -> None:
     for k in [k for k, (_, ts, _, _) in files.items() if now - ts > STORE_TTL]:
         files.pop(k)[3].cleanup()
         played.discard(k)
+        play_ids.pop(k, None)
     for k in [k for k, (_, ts, _) in streams.items() if now - ts > STORE_TTL]:
         streams.pop(k, None)
         played.discard(k)
@@ -628,7 +666,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             raise web.HTTPBadGateway(text="download failed")
         if tok not in played:
             played.add(tok)
-            await db.log_play(
+            play_ids[tok] = await db.log_play(
                 user["id"],
                 d.title,
                 d.artist,
@@ -639,7 +677,28 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
                 r.thumb_url,
                 auto=bool(body.get("auto")),
             )
-        return web.json_response({"url": f"/api/file/{tok}"})
+        return web.json_response({"url": f"/api/file/{tok}", "play": play_ids.get(tok)})
+
+    async def listened(request: web.Request):
+        """Сколько секунд песни человек послушал: пропуск за секунды весит в его вкусе меньше, чем песня до конца."""
+        user = await authed_user(request)
+        body = await request.json()
+        try:
+            play, seconds = int(body.get("play")), int(float(body.get("seconds") or 0))
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="bad play")
+        await db.set_listened(user["id"], play, min(seconds, 24 * 3600))
+        return web.json_response({"ok": True})
+
+    async def dislike(request: web.Request):
+        """«Не моё»: исполнителя месяц не предлагаем в волне и рекомендациях."""
+        user = await authed_user(request)
+        artist = str((await request.json()).get("artist", "")).strip()[:100]
+        if not artist:
+            raise web.HTTPBadRequest(text="no artist")
+        await db.dislike_artist(user["id"], artist)
+        _recs_cache.pop(user["id"], None)
+        return web.json_response({"ok": True})
 
     async def artist_songs(request: web.Request):
         """Песни исполнителя для выбора в дашборде: его самые популярные треки из каталога."""
@@ -670,7 +729,10 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         seen = {str(k)[:300] for k in body.get("seen", [])[:500]}
         skipped = {str(a).lower()[:100] for a in body.get("skipped", [])[:50]}
         n = min(max(int(body.get("n") or WAVE_BATCH), 1), WAVE_BATCH)  # первая партия мала: музыка стартует быстрее
-        taste = await db.taste_artists(user["id"]) or _seed_taste(texts.current())
+        blocked = await db.disliked_artists(user["id"])
+        skipped |= blocked
+        taste = [(a, w) for a, w in await db.taste_artists(user["id"]) if a.lower() not in blocked]
+        taste = taste or _seed_taste(texts.current())
         try:
             items = await asyncio.to_thread(_deezer_wave, taste, seen, skipped, n)
         except Exception as e:
@@ -904,6 +966,8 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             web.post("/api/handoff", handoff),
             web.get("/api/recs", recs),
             web.post("/api/wave", wave),
+            web.post("/api/listened", listened),
+            web.post("/api/dislike", dislike),
             web.post("/api/track", track),
             web.get("/api/artist", artist_songs),
             web.post("/api/resolve", resolve),

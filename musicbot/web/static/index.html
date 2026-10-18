@@ -316,7 +316,7 @@ const I18N = {
     handChat: "Continue in chat", handFile: "Save file or send to chat", queuePos: "{i} of {n}", myFavorites: "My Favorites",
     tapPlay: "Tap play to start.", trackFail: "Could not load this track. Skipping…",
     waveTuning: "Tuning your wave…", waveNothing: "Nothing to play yet.", waveDown: "The wave is unavailable. Try again.",
-    myWave: "My Wave", waveDislike: "Not for me: skip and play less of this artist", waveTapPlay: "Tap play to start",
+    myWave: "My Wave", waveDislike: "Not for me: skip this artist for a month", waveTapPlay: "Tap play to start",
     playWave: "Play My Wave", wavePaused: "Paused. Tap play to go on.", because: "Because you like {name}",
     waveIdle: "Music by your taste, non-stop",
     tabWave: "Wave", tabFavs: "Favorites", tabStats: "Stats", tabDiscover: "Discover", pages: "Pages",
@@ -356,7 +356,7 @@ const I18N = {
     handChat: "Продолжить в чате", handFile: "Сохранить файл или отправить в чат", queuePos: "{i} из {n}", myFavorites: "Избранное",
     tapPlay: "Нажмите «Играть», чтобы начать.", trackFail: "Не удалось загрузить трек. Пропускаю…",
     waveTuning: "Настраиваю вашу волну…", waveNothing: "Пока нечего играть.", waveDown: "Волна недоступна. Попробуйте ещё раз.",
-    myWave: "Моя волна", waveDislike: "Не моё: пропустить и реже включать этого исполнителя", waveTapPlay: "Нажмите «Играть», чтобы начать",
+    myWave: "Моя волна", waveDislike: "Не моё: пропустить и месяц не включать этого исполнителя", waveTapPlay: "Нажмите «Играть», чтобы начать",
     playWave: "Включить «Мою волну»", wavePaused: "Пауза. Нажмите «Играть», чтобы продолжить.", because: "Потому что вам нравится {name}",
     waveIdle: "Музыка по вашему вкусу, без остановок",
     tabWave: "Волна", tabFavs: "Избранное", tabStats: "Статистика", tabDiscover: "Открытия", pages: "Страницы",
@@ -397,7 +397,7 @@ const I18N = {
     handChat: "Continua in chat", handFile: "Salva il file o invia in chat", queuePos: "{i} di {n}", myFavorites: "Preferiti",
     tapPlay: "Tocca riproduci per iniziare.", trackFail: "Impossibile caricare questo brano. Passo oltre…",
     waveTuning: "Preparo la tua onda…", waveNothing: "Ancora niente da riprodurre.", waveDown: "L'onda non è disponibile. Riprova.",
-    myWave: "La mia onda", waveDislike: "Non fa per me: salta e proponi meno questo artista", waveTapPlay: "Tocca riproduci per iniziare",
+    myWave: "La mia onda", waveDislike: "Non fa per me: salta e non proporre questo artista per un mese", waveTapPlay: "Tocca riproduci per iniziare",
     playWave: "Avvia La mia onda", wavePaused: "In pausa. Tocca riproduci per continuare.", because: "Perché ti piace {name}",
     waveIdle: "Musica secondo i tuoi gusti, senza sosta",
     tabWave: "Onda", tabFavs: "Preferiti", tabStats: "Statistiche", tabDiscover: "Scopri", pages: "Pagine",
@@ -957,7 +957,7 @@ function trackUrl(i, bg = false) {
   if (player.cache[i] && Date.now() - player.cache[i].at > URL_FRESH) delete player.cache[i];
   if (!player.cache[i]) {
     const p = (it.kind === "fav" ? post("/api/favplay", body, signal)
-      : post("/api/track", { ...body, url: it.url || "", prefetch: bg, auto: !!it.auto }, signal)).then(r => r.url);
+      : post("/api/track", { ...body, url: it.url || "", prefetch: bg, auto: !!it.auto }, signal)).then(r => { if (r.play) it.play = r.play; return r.url; });
     p.at = Date.now();
     player.cache[i] = p;
   }
@@ -979,7 +979,16 @@ function warm(k, bg = true) {
   return trackUrl(k, bg).catch(() => { if (player.cache === c) delete c[k]; });
 }
 
+// what the user really heard of the song that is leaving: a skip after seconds weighs less in the taste than a full listen
+function reportListened() {
+  const prev = player.items[player.i], au = player.au;
+  if (!prev || !prev.play || !au || !au.src || au.src.startsWith("data:") || !(au.currentTime > 0)) return;
+  post("/api/listened", { play: prev.play, seconds: Math.round(au.currentTime) }).catch(() => {});
+  prev.play = 0;  // reported once
+}
+
 async function playAt(i, from = 0, ready = null) {
+  reportListened();
   const my = ++player.token, it = player.items[i];
   if (!it) { stopPlayer(); return; }
   player.i = i;
@@ -1145,7 +1154,10 @@ function wavePage() {
   next.onclick = () => live() && player.els.next.onclick();
   dis.onclick = () => {
     const it = player.items[player.i];
-    if (live() && it && it.artist) player.wave.skipped.add(it.artist);
+    if (live() && it && it.artist) {
+      player.wave.skipped.add(it.artist);
+      post("/api/dislike", { artist: it.artist }).catch(() => {});  // the server keeps it for a month, across sessions
+    }
     if (live()) player.els.next.onclick();
   };
   like.onclick = toggleFav;

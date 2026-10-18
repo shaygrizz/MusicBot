@@ -104,7 +104,11 @@ async def test_wave_needs_signed_data_and_returns_a_batch(monkeypatch):
     async def fake_taste(user_id, limit=20):
         return [("Кино", 3)]
 
+    async def nobody_disliked(user_id):
+        return set()
+
     monkeypatch.setattr(webapp.db, "taste_artists", fake_taste)
+    monkeypatch.setattr(webapp.db, "disliked_artists", nobody_disliked)
     monkeypatch.setattr(webapp, "_deezer_wave", fake_wave)
     c = await client()
     try:
@@ -166,7 +170,11 @@ async def test_new_user_gets_seed_artists_in_own_language(monkeypatch):
         got["taste"] = taste
         return []
 
+    async def nobody_disliked(user_id):
+        return set()
+
     monkeypatch.setattr(webapp.db, "taste_artists", no_taste)
+    monkeypatch.setattr(webapp.db, "disliked_artists", nobody_disliked)
     monkeypatch.setattr(webapp, "_deezer_wave", fake_wave)
     c = await client()
     try:
@@ -177,3 +185,42 @@ async def test_new_user_gets_seed_artists_in_own_language(monkeypatch):
         webapp.SEED_ARTISTS["it"]
     )
     assert got["taste"]
+
+
+async def test_skipped_song_weighs_less_and_old_taste_fades(monkeypatch, tmp_path):
+    monkeypatch.setattr(webapp.db, "DB_PATH", str(tmp_path / "t.db"))
+    await webapp.db.init_db()
+    log, db = webapp.db.log_play, webapp.db
+    for i in range(2):  # два пропуска за секунды: вкусом ещё не стали
+        play = await log(1, f"S{i}", "Skipped", 200, "ytm", "u", "audio")
+        await db.set_listened(1, play, 5)
+    for i in range(2):  # два прослушивания до конца
+        play = await log(1, f"H{i}", "Heard", 200, "ytm", "u", "audio")
+        await db.set_listened(1, play, 190)
+    assert [a for a, _ in await db.taste_artists(1)] == ["Heard"]
+    async with db.aiosqlite.connect(db.DB_PATH) as conn:  # год назад: вес падает, но не до нуля
+        await conn.execute("UPDATE plays SET ts = ts - 365*86400 WHERE artist = 'Heard'")
+        await conn.commit()
+    ((artist, weight),) = await db.taste_artists(1)
+    assert artist == "Heard" and 0.5 < weight < 1
+
+
+async def test_dislike_hides_an_artist_for_a_month(monkeypatch, tmp_path):
+    monkeypatch.setattr(webapp.db, "DB_PATH", str(tmp_path / "t.db"))
+    await webapp.db.init_db()
+    db = webapp.db
+    await db.dislike_artist(1, "Brazil Funk")
+    assert await db.disliked_artists(1) == {"brazil funk"}
+    assert await db.disliked_artists(2) == set()
+    await db.dislike_artist(1, "Old", days=-1)  # срок вышел
+    assert "old" not in await db.disliked_artists(1)
+
+
+def test_related_artists_in_a_foreign_script_are_left_out():
+    allowed = webapp._allowed_scripts([("Скриптонит", 5), ("Zivert", 1)])
+    assert allowed == {"cyr", "lat"}
+    assert webapp._allowed_scripts([("Скриптонит", 5), ("Баста", 3)]) == {"cyr"}
+    only_cyr = webapp._allowed_scripts([("Скриптонит", 5)])
+    assert webapp._script_ok("Баста", only_cyr) and not webapp._script_ok("宇多田ヒカル", only_cyr)
+    assert not webapp._script_ok("Anitta", only_cyr)
+    assert webapp._script_ok("Anitta", None)

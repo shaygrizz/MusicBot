@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS favorites (
     ts INTEGER,
     UNIQUE(user_id, key)
 );
+CREATE TABLE IF NOT EXISTS disliked (
+    user_id INTEGER NOT NULL,
+    artist TEXT NOT NULL,
+    until INTEGER NOT NULL,
+    PRIMARY KEY(user_id, artist)
+);
 CREATE TABLE IF NOT EXISTS search_cache (
     key TEXT PRIMARY KEY,
     ts INTEGER,
@@ -56,6 +62,11 @@ MIGRATIONS = [
     ("users", "bg_token", "TEXT"),
     ("users", "lang", "TEXT"),  # язык бота и мини-аппа: en, ru, it; пусто — ещё не выбирал
     ("plays", "cover", "TEXT"),
+    (
+        "plays",
+        "listened",
+        "INTEGER",
+    ),  # сколько секунд песни человек реально послушал (страница присылает при смене песни)
     ("plays", "auto", "INTEGER"),  # 1 — песня сыграна из рекомендаций или волны, а не выбрана самим пользователем
     ("favorites", "url", "TEXT"),  # ссылка на источник (песня из плейлиста YouTube): качаем по ней, без поиска
 ]
@@ -393,20 +404,75 @@ async def dashboard(user_id: int) -> dict:
 
 
 TASTE_MIN_WEIGHT = 2  # одно случайное прослушивание вкусом не считается: нужно два или песня в избранном
+PLAY_HALF_LIFE = 120 * 86400  # прослушивание за это время теряет половину веса
+FAV_HALF_LIFE = 365 * 86400  # избранное забывается медленнее
+DECAY_FLOOR = 0.3  # старый вкус слабеет, но не исчезает совсем
+DISLIKE_DAYS = 30  # «не моё» действует месяц
 
 
-async def taste_artists(user_id: int, limit: int = 20) -> list[tuple[str, int]]:
-    """Исполнители пользователя с весом для рекомендаций и «Моей волны»: прослушивание весит 1, песня в избранном — 3.
-    Песни, которые подобрали сами рекомендации, не считаются, иначе чужой случайный трек сам становится вкусом."""
+def _heard(listened: int | None, duration: int | None) -> float:
+    """Во сколько раз прослушивание весомее или легче обычного: пропуск за секунды почти ничего не значит."""
+    if listened is None or not duration:
+        return 1.0  # о прослушивании нет данных: считаем обычным
+    ratio = listened / duration
+    return 0.25 if ratio < 0.15 else 0.6 if ratio < 0.6 else 1.0
+
+
+def _decay(age: float, half_life: int) -> float:
+    return max(DECAY_FLOOR, 0.5 ** (max(age, 0) / half_life))
+
+
+async def taste_artists(user_id: int, limit: int = 20) -> list[tuple[str, float]]:
+    """Исполнители пользователя с весом для рекомендаций и «Моей волны»: прослушивание весит до 1 (меньше, если его
+    пропустили сразу), песня в избранном — 3; со временем вес падает. Песни, которые подобрали сами рекомендации,
+    не считаются, иначе чужой случайный трек сам становится вкусом. Порог проверяется по весу без учёта давности."""
+    now = time.time()
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "SELECT artist, SUM(w) FROM ("
-            " SELECT artist, 1 AS w FROM plays WHERE user_id=? AND artist != '' AND COALESCE(auto, 0) = 0"
-            " UNION ALL SELECT artist, 3 AS w FROM favorites WHERE user_id=? AND artist != ''"
-            ") GROUP BY LOWER(artist) HAVING SUM(w) >= ? ORDER BY 2 DESC LIMIT ?",
-            (user_id, user_id, TASTE_MIN_WEIGHT, limit),
+            "SELECT artist, listened, duration, ts FROM plays "
+            "WHERE user_id=? AND artist != '' AND COALESCE(auto, 0) = 0 ORDER BY id DESC LIMIT 3000",
+            (user_id,),
         )
-        return [(a, int(w)) for a, w in await cur.fetchall()]
+        plays = await cur.fetchall()
+        cur = await db.execute("SELECT artist, ts FROM favorites WHERE user_id=? AND artist != ''", (user_id,))
+        favs = await cur.fetchall()
+    raw: dict[str, float] = {}
+    fresh: dict[str, float] = {}
+    names: dict[str, str] = {}
+    for artist, listened, duration, ts in plays:
+        key, w = artist.lower(), _heard(listened, duration)
+        names.setdefault(key, artist)
+        raw[key] = raw.get(key, 0) + w
+        fresh[key] = fresh.get(key, 0) + w * _decay(now - (ts or 0), PLAY_HALF_LIFE)
+    for artist, ts in favs:
+        key = artist.lower()
+        names.setdefault(key, artist)
+        raw[key] = raw.get(key, 0) + 3
+        fresh[key] = fresh.get(key, 0) + 3 * _decay(now - (ts or 0), FAV_HALF_LIFE)
+    liked = sorted((k for k in raw if raw[k] >= TASTE_MIN_WEIGHT), key=lambda k: -fresh[k])[:limit]
+    return [(names[k], round(fresh[k], 2)) for k in liked]
+
+
+async def set_listened(user_id: int, play_id: int, seconds: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE plays SET listened=? WHERE id=? AND user_id=?", (max(seconds, 0), play_id, user_id))
+        await db.commit()
+
+
+async def dislike_artist(user_id: int, artist: str, days: int = DISLIKE_DAYS) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO disliked(user_id, artist, until) VALUES (?,?,?)",
+            (user_id, artist.lower(), int(time.time()) + days * 86400),
+        )
+        await db.commit()
+
+
+async def disliked_artists(user_id: int) -> set[str]:
+    """Исполнители («не моё»), которых пока не предлагаем, в нижнем регистре."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT artist FROM disliked WHERE user_id=? AND until > ?", (user_id, int(time.time())))
+        return {r[0] for r in await cur.fetchall()}
 
 
 async def user_stats(user_id: int) -> dict:
