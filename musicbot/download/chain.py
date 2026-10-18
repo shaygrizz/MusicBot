@@ -58,6 +58,10 @@ def _strategies(url: str, kind: str, meta: SearchResult | None, fallbacks: bool 
         if kind == "audio":
             yield "parallel", (lambda wd: fast_audio(url, wd)), True
         yield "yt-dlp", (lambda wd: ytdlp_run(url, kind, wd, meta)), True
+        if cookies_usable():
+            # устаревшие куки дают «The page needs to be reloaded» и «Requested format is not available» у всех клиентов:
+            # раньше других способов пробуем то же самое без куки, чтобы плохой cookies.txt не ломал скачивание
+            yield "yt-dlp:nocookies", (lambda wd: ytdlp_run(url, kind, wd, meta, {"cookiefile": None})), True
         for client in ALT_YT_CLIENTS:
             extra = {"extractor_args": {"youtube": {"player_client": [client]}}}
             if kind == "audio":

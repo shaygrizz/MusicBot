@@ -271,3 +271,12 @@ def test_blocked_video_download_gets_one_last_attempt(monkeypatch):
     with pytest.raises(RuntimeError, match="последняя попытка"):
         chain._download_sync(YT, "video")
     assert seen == [False, True]
+
+
+def test_bad_cookies_get_a_retry_without_them_before_other_clients(monkeypatch):
+    monkeypatch.setattr(chain, "cookies_usable", lambda: True)
+    monkeypatch.setattr(chain, "youtube_block_left", lambda: 0)
+    names = [name for name, _, _ in chain._strategies(YT, "audio", None, fallbacks=False)]
+    assert names[:3] == ["parallel", "yt-dlp", "yt-dlp:nocookies"]
+    monkeypatch.setattr(chain, "cookies_usable", lambda: False)
+    assert "yt-dlp:nocookies" not in [name for name, _, _ in chain._strategies(YT, "audio", None, fallbacks=False)]
