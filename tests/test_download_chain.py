@@ -214,6 +214,7 @@ def test_wrong_length_fallback_file_leads_to_the_next_fallback(monkeypatch, resu
 
     use_strategies(monkeypatch, [("soundcloud", writes("preview.mp3"), False), ("hitmo", writes("full.mp3"), False)])
     monkeypatch.setattr(chain, "probe_duration", lambda path: lengths[path.name])
+    monkeypatch.setattr(chain, "leading_silence", lambda path: 0.0)  # без ffmpeg, как на CI
     d = chain._download_sync("title://", "audio", meta)
     assert d.path.name == "full.mp3"
 
