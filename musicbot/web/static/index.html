@@ -31,7 +31,7 @@
     --wave: #FFEA00;  /* кнопка «Play» на главной, как у референса */
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html { background: var(--bg); }
+  html { background: var(--bg); scrollbar-gutter: stable; }  /* a short list (search) must not make the scrollbar vanish and rescale the backdrop */
   body {
     margin: 0 auto; max-width: 560px; padding: var(--s5) var(--s4) calc(var(--s7) + var(--tabbar));
     background: var(--bg); color: var(--text); font: 400 var(--t-body)/1.5 var(--sans);
