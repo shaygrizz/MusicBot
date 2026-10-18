@@ -122,6 +122,9 @@
   @media (prefers-reduced-motion: no-preference) { .sheet { transition: transform .25s ease-out; } }
   .head { display: grid; grid-template-columns: 80px 1fr; gap: var(--s4); align-items: center; }
   .head .gem { width: 80px; height: 80px; }
+  .head.profile .gem { padding: 0; background: none; border-radius: 12px; overflow: hidden; }  /* фото профиля без золотой рамки и срезанных углов */
+  .head.profile .cut8 { clip-path: none; }
+  .head.profile .gem > div { background: none; }
   .head .t { font: 400 var(--t-h2)/1.15 var(--display); overflow-wrap: anywhere; }
   .head .a { margin-top: var(--s1); color: var(--text2); }
   .why { margin-top: var(--s2); color: var(--gold); font-size: var(--t-meta); }
@@ -1504,7 +1507,7 @@ function gifts(items) {
 function openProfile() {
   sheet.replaceChildren();
   showSheet();
-  const head = $("div", "head"), info = $("div"), g =$("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
+  const head = $("div", "head profile"), info = $("div"), g =$("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
   img.alt = ""; img.src = state.avatar || "/static/Diamond.jpg"; inner.append(img); g.append(inner);
   info.append($("div", "t", t("profile")));
   head.append(g, info);
