@@ -27,7 +27,8 @@ EN: dict[str, str] = {
     ),
     "help": (
         "Send a track name, lyrics or a link, then choose a result.\n"
-        "Links offer audio or video.\n"
+        "Links offer audio or video, or ⌕ Find song: all versions of the song in the video.\n"
+        "Under a list of versions, ☰ All versions looks for every variant (slowed, reverb, full, short…).\n"
         "A playlist or album link (YouTube, YouTube Music, Spotify) lists its songs: send them to the chat "
         "or add them all to favorites.\n"
         "Forward songs from other bots to add them to your favorites.\n\n"
@@ -79,6 +80,8 @@ EN: dict[str, str] = {
     "ask_link": "Choose format:",
     "btn_audio": "Audio",
     "btn_video": "Video",
+    "btn_find_song": "⌕ Find song",
+    "btn_all_versions": "☰ All versions",
     "downloading": "Downloading…",
     "downloading_short": "Downloading…",
     "expired": "This button has expired. Send your request again.",
@@ -143,7 +146,8 @@ RU: dict[str, str] = {
     ),
     "help": (
         "Пришлите название трека, текст песни или ссылку и выберите результат.\n"
-        "По ссылке можно взять аудио или видео.\n"
+        "По ссылке можно взять аудио, видео или ⌕ найти песню: все версии песни из ролика.\n"
+        "Под списком версий кнопка ☰ Все версии ищет все варианты (slowed, reverb, полные, неполные…).\n"
         "Ссылка на плейлист или альбом (YouTube, YouTube Music, Spotify) покажет список песен: "
         "их можно отправить в чат или добавить все в избранное.\n"
         "Песни, пересланные из других ботов, добавляются в избранное.\n\n"
@@ -195,6 +199,8 @@ RU: dict[str, str] = {
     "ask_link": "Выберите формат:",
     "btn_audio": "Аудио",
     "btn_video": "Видео",
+    "btn_find_song": "⌕ Искать песню",
+    "btn_all_versions": "☰ Все версии",
     "downloading": "Скачиваю…",
     "downloading_short": "Скачиваю…",
     "expired": "Эта кнопка устарела. Отправьте запрос заново.",
@@ -259,7 +265,8 @@ IT: dict[str, str] = {
     ),
     "help": (
         "Invia il nome di un brano, il testo o un link, poi scegli un risultato.\n"
-        "Con un link puoi scegliere audio o video.\n"
+        "Con un link puoi scegliere audio, video o ⌕ cercare la canzone: tutte le versioni del brano nel video.\n"
+        "Sotto l'elenco delle versioni, ☰ Tutte le versioni cerca ogni variante (slowed, reverb, complete, brevi…).\n"
         "Il link di una playlist o di un album (YouTube, YouTube Music, Spotify) mostra i brani: "
         "puoi inviarli in chat o aggiungerli tutti ai preferiti.\n"
         "I brani inoltrati da altri bot vengono aggiunti ai preferiti.\n\n"
@@ -311,6 +318,8 @@ IT: dict[str, str] = {
     "ask_link": "Scegli il formato:",
     "btn_audio": "Audio",
     "btn_video": "Video",
+    "btn_find_song": "⌕ Cerca la canzone",
+    "btn_all_versions": "☰ Tutte le versioni",
     "downloading": "Scarico…",
     "downloading_short": "Scarico…",
     "expired": "Questo pulsante è scaduto. Invia di nuovo la richiesta.",

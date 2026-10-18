@@ -4,6 +4,7 @@ import html
 import logging
 import os
 import random
+import re
 import shutil
 import time
 import urllib.parse
@@ -60,6 +61,8 @@ class LangMiddleware(BaseMiddleware):
 # короткие токены для callback_data (лимит 64 байта) -> (url, метаданные из поиска)
 pending: dict[str, tuple[str, download.SearchResult | None]] = {}
 deep_queries: dict[str, str] = {}  # токен кнопки «Искать глубже» -> очищенный запрос
+# токен кнопки «Все версии» -> (исполнитель, название, токен «Искать глубже», остальные ряды кнопок под списком)
+all_versions: dict[str, tuple[str, str, str | None, list[list[InlineKeyboardButton]]]] = {}
 # предзагрузка: url -> (время старта, задача скачивания аудио)
 prefetch: dict[str, tuple[float, asyncio.Task]] = {}
 PREFETCH_TOP = 2
@@ -115,7 +118,7 @@ def fmt_dur(sec: int) -> str:
 def remember(url: str, meta: download.SearchResult | None = None) -> str:
     key = uuid.uuid4().hex[:10]
     pending[key] = (url, meta)
-    if len(pending) > 2000:
+    if len(pending) > 10000:  # полный список версий — до 40 кнопок за поиск
         pending.pop(next(iter(pending)))
     return key
 
@@ -466,7 +469,9 @@ async def on_media(m: Message, bot: Bot):
         await status.edit_text(texts.say("versions_none", **fields), parse_mode=ParseMode.HTML)
         return
     await status.edit_text(
-        texts.say("recognized", **fields), parse_mode=ParseMode.HTML, reply_markup=results_keyboard(outcome.results)
+        texts.say("recognized", **fields),
+        parse_mode=ParseMode.HTML,
+        reply_markup=results_keyboard(outcome.results, all_key=remember_all(rec.artist, rec.title, None, None)),
     )
     start_prefetch(outcome.results)
 
@@ -500,17 +505,131 @@ def is_music_video(url: str) -> bool:
 
 def link_keyboard(url: str) -> InlineKeyboardMarkup:
     """Скачать ссылку как есть: звук из ролика или само видео."""
-    return InlineKeyboardMarkup(inline_keyboard=link_buttons(url))
+    return InlineKeyboardMarkup(inline_keyboard=link_buttons(url, find_song=True))
 
 
-def link_buttons(url: str, audio_label: str | None = None) -> list[list[InlineKeyboardButton]]:
+def link_buttons(url: str, audio_label: str | None = None, find_song: bool = False) -> list[list[InlineKeyboardButton]]:
     key = remember(url)
-    return [
+    rows = [
         [
             InlineKeyboardButton(text=audio_label or texts.say("btn_audio"), callback_data=f"dl:a:{key}"),
             InlineKeyboardButton(text=texts.say("btn_video"), callback_data=f"dl:v:{key}"),
         ]
     ]
+    if find_song:
+        rows.append([InlineKeyboardButton(text=texts.say("btn_find_song"), callback_data=f"fs:{key}")])
+    return rows
+
+
+def video_song(title: str, uploader: str) -> tuple[str, str]:
+    """Название ролика вроде «Artist - Song (Official Video)» -> (исполнитель, песня)."""
+    t = re.sub(r"[(\[].*?[)\]]", " ", title).strip()
+    parts = re.split(r"\s[-–—]\s", t, maxsplit=1)  # в названиях бывают и дефис, и короткое, и длинное тире
+    if len(parts) == 2:
+        return parts[0].strip(), parts[1].strip()
+    return uploader, t
+
+
+async def full_versions(artist: str, title: str):
+    """Все версии песни: больше запросов и видов, длинный список."""
+    return await search.versions(artist, title, limit=40, per_kind=3, full=True)
+
+
+def remember_all(artist: str, title: str, deep_key: str | None, extra_rows: list | None) -> str:
+    key = uuid.uuid4().hex[:10]
+    all_versions[key] = (artist, title, deep_key, extra_rows or [])
+    if len(all_versions) > 500:
+        all_versions.pop(next(iter(all_versions)))
+    return key
+
+
+@router.callback_query(F.data == "noop")
+async def on_noop(cb: CallbackQuery):
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("allv:"))
+async def on_all_versions(cb: CallbackQuery):
+    """Под быстрым списком версий: ищем все варианты песни и заменяем кнопки в том же сообщении."""
+    if not allowed(cb.from_user.id):
+        await cb.answer()
+        return
+    entry = all_versions.get(cb.data.split(":", 1)[1])
+    if not entry:
+        await cb.answer(texts.say("expired"), show_alert=True)
+        return
+    artist, title, deep_key, extra_rows = entry
+    await cb.answer()
+    saved = None
+    try:
+        saved = cb.message.reply_markup
+        busy = InlineKeyboardButton(text=texts.say("searching_versions"), callback_data="noop")  # от двойного нажатия
+        rows = [
+            [busy] if row[0].callback_data and row[0].callback_data.startswith("allv:") else row
+            for row in saved.inline_keyboard
+        ]
+        await cb.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+        outcome = await full_versions(artist, title)
+        if not outcome.results:
+            raise LookupError("no versions")
+        await cb.message.edit_reply_markup(
+            reply_markup=results_keyboard(outcome.results, deep_key, extra_rows=extra_rows)
+        )
+    except Exception:
+        logging.exception("all versions failed")
+        try:
+            await cb.message.edit_reply_markup(reply_markup=saved)
+        except Exception:
+            pass
+        return
+    start_prefetch(outcome.results)
+
+
+@router.callback_query(F.data.startswith("fs:"))
+async def on_find_song(cb: CallbackQuery):
+    """Ссылка на видео: определяем песню в ролике и показываем все её версии (slowed, reverb, полные, неполные…)."""
+    if not allowed(cb.from_user.id):
+        await cb.answer()
+        return
+    entry = pending.get(cb.data.split(":", 1)[1])
+    if not entry:
+        await cb.answer(texts.say("expired"), show_alert=True)
+        return
+    url = entry[0]
+    await cb.answer()
+    status = await cb.message.answer(texts.say("recognizing"))
+    artist = title = ""
+    guessed = False
+    try:
+        d = await download.download(url, "audio", None)
+        try:
+            rec = await recognize.recognize(d.path)
+            guessed = not rec
+            artist, title = (rec.artist, rec.title) if rec else video_song(d.title, d.artist)  # не узнали — по названию
+        finally:
+            d.cleanup()
+    except Exception:
+        logging.exception("find song: recognition failed")
+    if not title:
+        await status.edit_text(texts.say("not_recognized"))
+        return
+    fields = {"artist": html.escape(artist), "title": html.escape(title)}
+    await status.edit_text(texts.say("searching_versions"))
+    try:
+        outcome = await full_versions(artist, title)
+    except Exception:
+        logging.exception("versions search failed")
+        await status.edit_text(texts.say("search_error"))
+        return
+    if not outcome.results:
+        await status.edit_text(texts.say("versions_none", **fields), parse_mode=ParseMode.HTML)
+        return
+    await status.edit_text(
+        texts.say("versions_found" if guessed else "recognized", **fields),
+        parse_mode=ParseMode.HTML,
+        reply_markup=results_keyboard(outcome.results),
+    )
+    start_prefetch(outcome.results)
 
 
 async def run_link_music(m: Message, url: str):
@@ -546,7 +665,9 @@ async def run_link_music(m: Message, url: str):
     await status.edit_text(
         texts.say("recognized", **fields),
         parse_mode=ParseMode.HTML,
-        reply_markup=results_keyboard(outcome.results, extra_rows=raw),
+        reply_markup=results_keyboard(
+            outcome.results, extra_rows=raw, all_key=remember_all(rec.artist, rec.title, None, raw)
+        ),
     )
     start_prefetch(outcome.results)
 
@@ -570,6 +691,7 @@ async def run_search(m: Message, text: str):
         return
     is_artist = outcome.kind == "artist"
     header, parse_mode = (texts.say("artist_found", artist=outcome.artist) if is_artist else texts.say("found")), None
+    all_key = None
     if not is_artist and results[0].verified:
         # песня найдена: сначала показываем все её версии (оригинал, ремиксы, live, slowed, sped up, каверы…)
         first = results[0]
@@ -583,8 +705,11 @@ async def run_search(m: Message, text: str):
             results = vers.results
             header = texts.say("versions_found", title=html.escape(first.title), artist=html.escape(first.artist))
             parse_mode = ParseMode.HTML
+            all_key = remember_all(first.artist, first.title, deep_key, None)
     await wait.edit_text(
-        header, parse_mode=parse_mode, reply_markup=results_keyboard(results, deep_key, more=is_artist)
+        header,
+        parse_mode=parse_mode,
+        reply_markup=results_keyboard(results, deep_key, more=is_artist, all_key=all_key),
     )
     start_prefetch(results)
 
@@ -602,6 +727,7 @@ def results_keyboard(
     deep_key: str | None = None,
     more: bool = False,
     extra_rows: list[list[InlineKeyboardButton]] | None = None,
+    all_key: str | None = None,
 ) -> InlineKeyboardMarkup:
     rows = []
     for r in results:
@@ -612,6 +738,8 @@ def results_keyboard(
         if r.duration:
             label += f" · {fmt_dur(r.duration)}"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"dl:a:{key}")])
+    if all_key:
+        rows.append([InlineKeyboardButton(text=texts.say("btn_all_versions"), callback_data=f"allv:{all_key}")])
     if deep_key:
         label = texts.say("more_button" if more else "deep_button")
         rows.append([InlineKeyboardButton(text=label, callback_data=f"deep:{deep_key}")])
