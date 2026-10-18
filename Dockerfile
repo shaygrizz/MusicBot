@@ -12,7 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Node.js нужен yt-dlp как JS-движок для разбора YouTube. Он приходит пакетом pip (nodejs-wheel-binaries),
-# так не нужен второй базовый образ: его загрузка в сборщике Amvera обрывалась
+# так не нужен второй базовый образ: его загрузка в сборщике хостинга обрывалась
 COPY requirements.txt requirements-docker.txt ./
 RUN pip install -r requirements-docker.txt \
     && NODE="$(python -c 'import os, nodejs_wheel; print(os.path.join(os.path.dirname(nodejs_wheel.__file__), "bin", "node"))')" \
@@ -23,5 +23,5 @@ RUN python -c "import static_ffmpeg; static_ffmpeg.add_paths()"
 
 COPY . .
 
-# Постоянное хранилище Amvera монтируется в /data (база, фото профилей, кэш избранного, cookies.txt)
+# Постоянное хранилище хостинга монтируется в /data (база, фото профилей, кэш избранного, cookies.txt)
 CMD ["python", "-m", "musicbot"]

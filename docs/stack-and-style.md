@@ -17,7 +17,7 @@
 | Распознавание | ShazamIO (необязательная зависимость, extra `shazam`) | Тяжёлая, поэтому опциональная |
 | Тесты | pytest + pytest-asyncio | `asyncio_mode = "auto"`, внешние сервисы подменены |
 | Линтер и формат | ruff (`check` и `format`) | Один инструмент вместо flake8 + isort + black |
-| Хостинг | Docker-образ, раньше Amvera, сейчас Bothost | Данные в `/data`, порт 8080 |
+| Хостинг | Docker-образ, Bothost | Данные в `/data`, порт 8080 |
 | CI | GitHub Actions | Установка, `ruff check`, `ruff format --check`, `pytest` |
 
 ## 2. Архитектура в одном абзаце
