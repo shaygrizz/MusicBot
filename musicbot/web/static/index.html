@@ -88,6 +88,7 @@
   .wcol { display: flex; align-items: flex-end; }
   .wbar { width: 100%; border-radius: 8px; background: linear-gradient(rgba(229, 96, 143, .85), rgba(229, 96, 143, .4)); }
   .wbar.now { background: var(--rose); box-shadow: 0 0 16px rgba(229, 96, 143, .6); }
+  @media (prefers-reduced-motion: no-preference) { .dprog { transition: stroke-dasharray .8s ease-out; } .wbar { transition: height .8s ease-out; } }
   .weeknames { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s2); margin-top: var(--s2); color: var(--text2); font-size: var(--t-meta); text-align: center; text-transform: uppercase; }
 
   /* списки */
@@ -625,33 +626,57 @@ const doseText = s => {
   return h ? `${h}${t("hShort")} ${m}${t("mShort")}` : `${m}${t("mShort")}`;
 };
 // today's listening as a glowing ring (full = your usual day over the last 30 days) and this week, Monday to Sunday
+const DOSE_C = 2 * Math.PI * 88;
 function dose(secs) {
-  const now = new Date(), today = secs[dayKey(now)] || 0;
-  const month = [];
-  for (let i = 1; i <= 30; i++) { const dt = new Date(now); dt.setDate(dt.getDate() - i); if (secs[dayKey(dt)]) month.push(secs[dayKey(dt)]); }
-  const usual = month.length ? month.reduce((a, b) => a + b, 0) / month.length : 3600;
-  const wrap = $("div", "dose"), ring = $("div", "dosering"), mid = $("div", "dosemid");
-  const C = 2 * Math.PI * 88, part = Math.min(1, today / Math.max(usual, 60));
-  const s = svg("svg", { viewBox: "0 0 200 200", "aria-hidden": "true" });
-  s.append(svg("circle", { cx: 100, cy: 100, r: 88, class: "dtrack" }));
-  if (part) s.append(svg("circle", { cx: 100, cy: 100, r: 88, class: "dprog", "stroke-dasharray": `${C * part} ${C}` }));
-  mid.append($("div", "dosebig", doseText(today)), $("div", "dosesub", t("dailyDose")));
-  ring.append(s, mid);
-  ring.setAttribute("role", "img"); ring.setAttribute("aria-label", `${t("dailyDose")}: ${doseText(today)}`);
-
-  const monday = new Date(now); monday.setDate(now.getDate() - (now.getDay() + 6) % 7);
-  const days = Array.from({ length: 7 }, (_, i) => { const dt = new Date(monday); dt.setDate(monday.getDate() + i); return dt; });
-  const vals = days.map(dt => dt > now ? 0 : secs[dayKey(dt)] || 0), max = Math.max(1, ...vals);
+  const wrap = $("div", "dose"), ring = $("div", "dosering"), mid = $("div", "dosemid"), big = $("div", "dosebig");
+  const s = svg("svg", { viewBox: "0 0 200 200", "aria-hidden": "true" }), prog = svg("circle", { cx: 100, cy: 100, r: 88, class: "dprog" });
+  s.append(svg("circle", { cx: 100, cy: 100, r: 88, class: "dtrack" }), prog);
+  mid.append(big, $("div", "dosesub", t("dailyDose")));
+  ring.append(s, mid); ring.setAttribute("role", "img");
   const week = $("div", "week"), names = $("div", "weeknames"), letter = new Intl.DateTimeFormat(LOCALES[LANG], { weekday: "narrow" });
-  days.forEach((dt, i) => {
-    const col = $("div", "wcol"), bar = $("div", "wbar" + (dayKey(dt) === dayKey(now) ? " now" : ""));
-    bar.style.height = vals[i] ? `${Math.max(8, vals[i] / max * 100)}%` : "0";
-    bar.title = `${dateShort(dt)}: ${doseText(vals[i])}`;
+  const bars = Array.from({ length: 7 }, (_, i) => {
+    const col = $("div", "wcol"), bar = $("div", "wbar"), dt = new Date(2024, 0, 1 + i);  // 1 Jan 2024 was a Monday
     col.append(bar); week.append(col); names.append($("span", null, letter.format(dt)));
+    return bar;
   });
   week.setAttribute("aria-hidden", "true");
   wrap.append(ring, week, names);
+  wrap.els = { ring, big, prog, bars };
+  fillDose(wrap, secs);
   return wrap;
+}
+// the numbers of the ring and the week; called again while music plays, so the block is not rebuilt
+function fillDose(wrap, secs) {
+  const { ring, big, prog, bars } = wrap.els, now = new Date(), today = secs[dayKey(now)] || 0;
+  const month = [];
+  for (let i = 1; i <= 30; i++) { const dt = new Date(now); dt.setDate(dt.getDate() - i); if (secs[dayKey(dt)]) month.push(secs[dayKey(dt)]); }
+  const usual = month.length ? month.reduce((a, b) => a + b, 0) / month.length : 3600;
+  const part = Math.min(1, today / Math.max(usual, 60));
+  prog.setAttribute("stroke-dasharray", `${DOSE_C * part} ${DOSE_C}`); prog.style.display = part ? "" : "none";
+  big.textContent = doseText(today);
+  ring.setAttribute("aria-label", `${t("dailyDose")}: ${doseText(today)}`);
+  const monday = new Date(now); monday.setDate(now.getDate() - (now.getDay() + 6) % 7);
+  const days = bars.map((_, i) => { const dt = new Date(monday); dt.setDate(monday.getDate() + i); return dt; });
+  const vals = days.map(dt => dt > now ? 0 : secs[dayKey(dt)] || 0), max = Math.max(1, ...vals);
+  bars.forEach((bar, i) => {
+    bar.classList.toggle("now", dayKey(days[i]) === dayKey(now));
+    bar.style.height = vals[i] ? `${Math.max(8, vals[i] / max * 100)}%` : "0";
+    bar.title = `${dateShort(days[i])}: ${doseText(vals[i])}`;
+  });
+}
+// live listening time: what plays now is added to today's total, so the ring grows while the stats are open.
+// Songs started in this session are not in the numbers the page got on opening, so nothing is counted twice.
+const live = { at: null, drawn: 0 };
+function liveListen() {
+  const au = player.au;
+  if (!au || au.paused || !au.src || au.src.startsWith("data:")) { live.at = null; return; }
+  const pos = au.currentTime, step = live.at == null ? 0 : pos - live.at;
+  live.at = pos;
+  if (!(step > 0 && step < 2) || !state.d) return;  // a seek, a new song or a restart is not listening time
+  const secs = state.d.day_seconds || (state.d.day_seconds = {}), k = dayKey(new Date());
+  secs[k] = (secs[k] || 0) + step;
+  const box = document.querySelector(".dose");
+  if (box && Date.now() - live.drawn > 5000) { live.drawn = Date.now(); fillDose(box, secs); }
 }
 
 // a row the user can tap (or press Enter/Space on) to play or open something
@@ -1020,6 +1045,7 @@ function ensurePlayerBar() {
     syncWave();
   };
   au.addEventListener("timeupdate", shown); au.addEventListener("durationchange", shown);
+  au.addEventListener("timeupdate", liveListen); au.addEventListener("pause", () => { live.at = null; });
   au.addEventListener("play", () => state_(true)); au.addEventListener("pause", () => state_(false));
   au.addEventListener("ended", () => {
     if (au.src.startsWith("data:")) return;  // the silent unlock clip must not skip a track
