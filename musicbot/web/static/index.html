@@ -103,6 +103,8 @@
   .gem { width: 136px; height: 136px; padding: 2px; background: var(--gold); }
   .gem > div { width: 100%; height: 100%; background: var(--surface); }
   .gem img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gift .gem { padding: 0; background: none; border-radius: 12px; overflow: hidden; }  /* обложки как на «Волне»: без рамки и граней */
+  .gift .cut8 { clip-path: none; }
   .gift .t { margin-top: var(--s3); font: 400 var(--t-lead)/1.2 var(--display); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .gift .a { margin-top: var(--s1); color: var(--text2); font-size: var(--t-meta); }
 
@@ -309,6 +311,16 @@
   .mini .vol { width: 100%; margin: 0; }
   .wwhy { min-height: 22px; margin: var(--s2) 0 0; color: var(--gold); font-size: var(--t-meta); }
   /* строки дашборда, которые можно нажать */
+  /* «Открытия»: чарт страны с обложками и любимые исполнители */
+  .list.chart li { grid-template-columns: var(--s5) 44px minmax(0, 1fr); align-items: center; }
+  .list.chart img, .list.chart .noimg { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; display: block; background: var(--surface); }
+  .chips { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
+  .chip { height: 40px; padding: 0 var(--s4); border: 0; border-radius: 20px; background: rgba(243, 239, 248, .08); color: var(--text); font: inherit; cursor: pointer; }
+  .chip:hover { background: rgba(243, 239, 248, .14); }
+  /* обложка играющей песни целиком: нажатие на неё в плеере, нажатие в любом месте закрывает */
+  .discimg { cursor: zoom-in; }
+  .coverview { position: fixed; inset: 0; z-index: 13; display: grid; place-items: center; padding: var(--s5); background: rgba(14, 9, 22, .94); cursor: zoom-out; }
+  .coverview img { width: min(100%, 560px); max-height: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 12px; }
   .list li.pick { cursor: pointer; }
   .list li.pick:hover .nm, .list li.pick:focus-visible .nm,
   .favrow:hover .nm, .favrow:focus-visible .nm { color: var(--rose); }
@@ -371,6 +383,7 @@ const I18N = {
     cont: "Continue", whatCall: "What should we call you?", welcome: "Welcome",
     secActivity: "Activity", secHours: "Listening hours", secArtists: "Top artists", secTracks: "Top tracks", secRecent: "Recent",
     songsBy: "Songs by {artist}", discover: "Discover", findingForYou: "Finding songs for you…",
+    chartIn: "Top in {country}", yourArtists: "Your artists", coverFull: "Cover, tap to close",
     noRecs: "No recommendations right now.", similar: "Similar to what you listen to.", popular: "Popular right now.",
   },
   ru: {
@@ -413,6 +426,7 @@ const I18N = {
     cont: "Продолжить", whatCall: "Как к вам обращаться?", welcome: "Добро пожаловать",
     secActivity: "Активность", secHours: "Часы прослушивания", secArtists: "Любимые исполнители", secTracks: "Любимые треки", secRecent: "Недавние",
     songsBy: "Песни: {artist}", discover: "Открытия", findingForYou: "Подбираю песни для вас…",
+    chartIn: "Топ: {country}", yourArtists: "Ваши исполнители", coverFull: "Обложка, нажмите, чтобы закрыть",
     noRecs: "Сейчас рекомендаций нет.", similar: "Похоже на то, что вы слушаете.", popular: "Популярное сейчас.",
   },
   it: {
@@ -452,6 +466,7 @@ const I18N = {
     cont: "Continua", whatCall: "Come ti chiamiamo?", welcome: "Benvenuto",
     secActivity: "Attività", secHours: "Ore di ascolto", secArtists: "Artisti preferiti", secTracks: "Brani preferiti", secRecent: "Recenti",
     songsBy: "Brani di {artist}", discover: "Scopri", findingForYou: "Cerco brani per te…",
+    chartIn: "Top: {country}", yourArtists: "I tuoi artisti", coverFull: "Copertina, tocca per chiudere",
     noRecs: "Nessun consiglio al momento.", similar: "Simile a ciò che ascolti.", popular: "Popolare in questo momento.",
   },
 };
@@ -496,7 +511,7 @@ const hoursText = s => s >= 3600 ? `${(s / 3600).toFixed(1)} ${t("hUnit")}` : `$
 const dateShort = dt => dt.toLocaleDateString(LOCALES[LANG], { day: "numeric", month: "short" });
 
 // profile, favorites and loaded data live here; render() draws the page from it
-const state = { name: "", tgName: "", avatar: null, bg: null, favs: [], d: null, recs: [] };
+const state = { name: "", tgName: "", avatar: null, bg: null, favs: [], d: null, recs: [], chart: [], country: "" };
 const norm = s => (s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 const isFav = r => state.favs.some(f => f.key === norm(r.artist) + norm(r.title));
 
@@ -910,6 +925,25 @@ function discSvg() {  // a small vinyl record; it spins while the music plays
     svg("circle", { cx: 24, cy: 24, r: 1.6, class: "dho" }), svg("path", { d: "M24 4a20 20 0 0 1 17 9", class: "dsh" }));
   return s;
 }
+// the whole cover over the page; the services give small pictures, so a larger copy is asked for first
+function bigCover(url) {
+  return url.replace(/\/\d+x\d+(-[^/]*\.jpg|bb\.jpg)$/, "/1000x1000$1")  // Deezer, Apple
+    .replace(/\/(hq|mq|sd)default\.jpg(\?.*)?$/, "/maxresdefault.jpg")  // YouTube
+    .replace(/=w\d+-h\d+/, "=w1000-h1000");  // YouTube Music
+}
+function showCover(src) {
+  if (!src) return;
+  const view = $("div", "coverview"), img = $("img"), big = bigCover(src);
+  view.setAttribute("role", "dialog"); view.setAttribute("aria-label", t("coverFull")); view.tabIndex = -1;
+  img.alt = ""; img.src = big;
+  const small = () => { if (img.src !== src) img.src = src; };  // no larger copy: the one from the player
+  img.onerror = small;
+  img.onload = () => { if (img.naturalWidth <= 120 && img.src !== src) small(); };  // YouTube answers a missing size with a tiny grey stub
+  const close = () => { view.remove(); document.removeEventListener("keydown", esc); };
+  const esc = e => { if (e.key === "Escape") close(); };
+  view.onclick = close; document.addEventListener("keydown", esc);
+  view.append(img); document.body.append(view); view.focus();
+}
 const tm = s => Number.isFinite(s) ? `${Math.floor(s / 60)}:${pad(Math.floor(s % 60))}` : "0:00";
 
 function ensurePlayerBar() {
@@ -941,6 +975,7 @@ function ensurePlayerBar() {
   document.body.append(bar); document.body.classList.add("withbar");
   Object.assign(player, { bar, au, els: { discimg, disc, title, sub, fill, dot, range, cur, dur, main, msg, hand, mt, star, prev, next } });
   star.onclick = toggleFav;
+  discimg.onclick = () => showCover(discimg.src);
   const minimize = on => {
     bar.classList.toggle("min", on); document.body.classList.toggle("barmin", on);
     try { localStorage.setItem("playerMin", on ? "1" : "0"); } catch (e) {}
@@ -1774,7 +1809,36 @@ function discoverPage(d) {
   if (!state.recsLoaded) page.append($("p", "note", t("findingForYou")));
   else if (!state.recs.length) page.append($("p", "note", t("noRecs")));
   else page.append($("p", "note", d.total ? t("similar") : t("popular")), gifts(state.recs));
+  if (state.chart.length) page.append(section(t("chartIn", { country: countryName(state.country) }), null, chartList(state.chart)));
+  const artists = d.top_artists.slice(0, 10);
+  if (artists.length) {
+    const chips = $("div", "chips");
+    artists.forEach(x => {
+      const b = $("button", "chip", x.artist);
+      b.setAttribute("aria-label", t("songsBy", { artist: x.artist })); b.onclick = () => openArtist(x.artist);
+      chips.append(b);
+    });
+    page.append(section(t("yourArtists"), null, chips));
+  }
   return page;
+}
+function countryName(code) {
+  try { return new Intl.DisplayNames([LANG], { type: "region" }).of(code) || code; } catch (e) { return code; }
+}
+// the country's chart: a tap plays from that song down the list
+function chartList(items) {
+  const ul = $("ul", "list chart"), songs = asTracks(items);
+  items.forEach((it, i) => {
+    const li = $("li"), box = $("div", "nm");
+    let pic;
+    if (it.cover && it.cover.startsWith("https://")) { pic = $("img"); pic.src = it.cover; pic.alt = ""; pic.loading = "lazy"; }
+    else pic = $("div", "noimg");
+    box.append(document.createTextNode(it.title), $("span", "sb", it.artist));
+    li.append($("span", "rank", i + 1), pic, box);
+    pickable(li, t("playItem", { title: it.title, artist: it.artist }), () => startQueue(songs, mix.on, i));
+    ul.append(li);
+  });
+  return ul;
 }
 
 function render() {
@@ -1807,7 +1871,8 @@ async function main() {
   if (state.name) { render(); maybeAutoplay(); } else welcome();
 
   try {
-    state.recs = (await api("/api/recs")).items;
+    const r = await api("/api/recs");
+    state.recs = r.items; state.chart = r.chart || []; state.country = r.country || "";
   } catch (e) { /* ignore */ }
   state.recsLoaded = true;
   if (state.name && state.tab === "discover") render();  // recommendations are optional; the other pages do not use them

@@ -818,7 +818,10 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
     async def recs(request: web.Request):
         user = await authed_user(request)
         country = charts.country_for(request.headers.get("X-Timezone"), texts.current())
-        return web.json_response({"items": await _recs(user["id"], texts.current(), country)})
+        items, chart = await asyncio.gather(
+            _recs(user["id"], texts.current(), country), asyncio.to_thread(charts.country_chart, country)
+        )
+        return web.json_response({"items": items, "chart": chart[:10], "country": country})  # чарт страны ниже на «Открытиях»
 
     async def wave(request: web.Request):
         """«Моя волна»: следующая партия песен по вкусу. Страница присылает уже игравшие песни и пропущенных исполнителей."""
