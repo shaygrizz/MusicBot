@@ -821,7 +821,8 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         items, chart = await asyncio.gather(
             _recs(user["id"], texts.current(), country), asyncio.to_thread(charts.country_chart, country)
         )
-        return web.json_response({"items": items, "chart": chart[:10], "country": country})  # чарт страны ниже на «Открытиях»
+        # чарт страны показывается ниже рекомендаций на «Открытиях»
+        return web.json_response({"items": items, "chart": chart[:10], "country": country})
 
     async def wave(request: web.Request):
         """«Моя волна»: следующая партия песен по вкусу. Страница присылает уже игравшие песни и пропущенных исполнителей."""
