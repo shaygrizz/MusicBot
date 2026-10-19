@@ -560,7 +560,11 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
 
     async def dashboard(request: web.Request):
         user = await authed_user(request)
-        data = await db.dashboard(user["id"])
+        try:  # смещение часов телефона от UTC в минутах: дни считаются по времени человека, а не сервера
+            tz = max(-14 * 60, min(14 * 60, int(request.query["tzo"])))
+        except (KeyError, ValueError):
+            tz = None
+        data = await db.dashboard(user["id"], tz)
         data["user"] = {"id": user["id"], "name": user.get("first_name", "")}
         profile = await db.get_profile(user["id"])
         data["profile"] = {

@@ -1873,7 +1873,8 @@ async function main() {
   applyLang();
   document.getElementById("app").replaceChildren($("div", "empty", t("loading")));
   document.body.prepend(backdrop());
-  try { state.d = await api("/api/dashboard"); }
+  // the phone's offset from UTC in minutes: the server splits plays into the user's own days and hours, not its own
+  try { state.d = await api(`/api/dashboard?tzo=${-new Date().getTimezoneOffset()}`); }
   catch (e) { document.getElementById("app").replaceChildren($("div", "err", t("openFromBot"))); return; }
   if (LANGS[state.d.profile.lang]) { LANG = state.d.profile.lang; applyLang(); }
   state.name = state.d.profile.name;

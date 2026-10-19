@@ -356,8 +356,10 @@ async def log_play(
         return cur.lastrowid
 
 
-async def dashboard(user_id: int) -> dict:
-    """Всё для мини-аппа: итоги, активность по дням и часам, топы, последние треки."""
+async def dashboard(user_id: int, tz_minutes: int | None = None) -> dict:
+    """Всё для мини-аппа: итоги, активность по дням и часам, топы, последние треки.
+    tz_minutes — смещение часов человека от UTC: дни и часы считаются по его времени (без него — по времени сервера)."""
+    local = "localtime" if tz_minutes is None else f"{int(tz_minutes) * 60} seconds"
     async with aiosqlite.connect(DB_PATH) as db:
 
         async def rows(sql, *args):
@@ -368,13 +370,15 @@ async def dashboard(user_id: int) -> dict:
             await rows("SELECT COUNT(*), COALESCE(SUM(duration),0), MIN(ts) FROM plays WHERE user_id=?", user_id)
         )[0]
         days = await rows(
-            "SELECT strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime') d, COUNT(*), COALESCE(SUM(duration),0) "
+            # время за день: сколько реально прослушано (пропуск через 5 секунд — 5 секунд), иначе длина песни
+            "SELECT strftime('%Y-%m-%d', ts, 'unixepoch', ?) d, COUNT(*), COALESCE(SUM(COALESCE(listened, duration)),0) "
             "FROM plays WHERE user_id=? AND ts >= strftime('%s','now','-60 day') GROUP BY d",
+            local,
             user_id,
         )
         hours = await rows(
-            "SELECT CAST(strftime('%H', ts, 'unixepoch', 'localtime') AS INTEGER) h, COUNT(*) "
-            "FROM plays WHERE user_id=? GROUP BY h",
+            "SELECT CAST(strftime('%H', ts, 'unixepoch', ?) AS INTEGER) h, COUNT(*) FROM plays WHERE user_id=? GROUP BY h",
+            local,
             user_id,
         )
         top_artists = await rows(
