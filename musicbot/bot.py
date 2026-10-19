@@ -799,7 +799,7 @@ async def on_favorite(cb: CallbackQuery):
         src = (
             play["url"] if play["kind"] == "audio" else ""
         )  # ссылка, по которой песню скачали: качаем снова ту же версию
-        await db.fav_add(uid, play["artist"], play["title"], play["duration"], play["cover"], src)
+        await db.fav_add(uid, play["artist"], play["title"], play["duration"], play["cover"], src, "bot")
         # заранее сохраняем звук на диск: дальше песня будет играть мгновенно и больше не скачивается заново
         favcache.spawn(favcache.prefetch(uid, play["artist"], play["title"], play["duration"], play["cover"], src))
         now_fav, note = True, texts.say("fav_added")
@@ -833,7 +833,7 @@ async def on_download(cb: CallbackQuery, bot: Bot):
         cover = meta.thumb_url if meta else ""
         if cached:
             file_id, title, artist, duration = cached
-            play_id = await db.log_play(cb.from_user.id, title, artist, duration, "cache", url, kind, cover)
+            play_id = await db.log_play(cb.from_user.id, title, artist, duration, "cache", url, kind, cover, via="bot")
             if kind == "audio":
                 await bot.send_audio(
                     cb.message.chat.id,
@@ -858,7 +858,9 @@ async def on_download(cb: CallbackQuery, bot: Bot):
                 d = await download.download(url, kind, meta)
             try:
                 thumb = FSInputFile(d.thumb) if d.thumb else None
-                play_id = await db.log_play(cb.from_user.id, d.title, d.artist, d.duration, d.source, url, kind, cover)
+                play_id = await db.log_play(
+                    cb.from_user.id, d.title, d.artist, d.duration, d.source, url, kind, cover, via="bot"
+                )
                 if kind == "audio":
                     sent = await bot.send_audio(
                         cb.message.chat.id,

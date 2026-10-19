@@ -13,6 +13,7 @@
   :root {
     --bg: #0E0916; --surface: #181022; --rule: #3B2E4D; --text: #F3EFF8; --text2: #BDB3CF;
     --rose: #E5608F; --gold: #D4B47A; --on-rose: #0E0916;
+    --bot: var(--gold); --app: var(--rose); --old: #5A4B70;
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
     --t-meta: 13px; --t-body: 15px; --t-lead: 18px; --t-h1: 32px;
     --display: "Forum", "Georgia", serif;
@@ -20,33 +21,79 @@
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html { background: var(--bg); }
-  body { margin: 0 auto; max-width: 640px; padding: var(--s5) var(--s4) var(--s6); background: var(--bg); color: var(--text); font: 400 var(--t-body)/1.5 var(--sans); }
-  button { font: inherit; color: inherit; }
+  body { margin: 0 auto; max-width: 720px; padding: var(--s5) var(--s4) var(--s6); background: var(--bg); color: var(--text); font: 400 var(--t-body)/1.5 var(--sans); }
+  button, input, select { font: inherit; color: inherit; }
   :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
   h1 { margin: 0; font: 400 var(--t-h1)/1.1 var(--display); }
   h2 { margin: var(--s6) 0 var(--s2); font: 400 var(--t-lead)/1.2 var(--display); color: var(--gold); }
   .bar { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3); }
   .link { padding: var(--s2) 0; border: 0; background: none; color: var(--rose); font-weight: 500; cursor: pointer; }
   .muted { color: var(--text2); font-size: var(--t-meta); }
-  .kv { display: grid; grid-template-columns: 1fr auto; gap: var(--s2) var(--s4); margin: var(--s3) 0 0; }
-  .kv dt { color: var(--text2); }
-  .kv dd { margin: 0; font-weight: 600; text-align: right; }
-  .row { display: grid; grid-template-columns: 1fr auto; gap: var(--s3); align-items: baseline; width: 100%; padding: var(--s3) 0; border: 0; border-top: 1px solid var(--rule); background: none; text-align: left; cursor: pointer; }
-  .list > .row:last-of-type, .list > .more:last-child { border-bottom: 1px solid var(--rule); }
-  .row .n { font-weight: 500; overflow-wrap: anywhere; }
-  .row .m { color: var(--text2); font-size: var(--t-meta); }
-  .row .c { color: var(--text2); font-size: var(--t-meta); white-space: nowrap; text-align: right; }
-  .more { padding: var(--s2) 0 var(--s4) var(--s4); border-top: 1px solid var(--rule); }
-  .more h3 { margin: var(--s3) 0 var(--s1); font: 600 var(--t-meta)/1.3 var(--sans); color: var(--text2); text-transform: uppercase; letter-spacing: .04em; }
-  .more ul { margin: 0; padding: 0; list-style: none; }
-  .more li { display: grid; grid-template-columns: 1fr auto; gap: var(--s3); padding: var(--s1) 0; font-size: var(--t-meta); }
-  .more li span:last-child { color: var(--text2); white-space: nowrap; }
   .err { padding: var(--s5) 0; color: var(--rose); }
   .id { font-variant-numeric: tabular-nums; }
+
+  /* разделы */
+  .tabs { position: sticky; top: 0; z-index: 2; display: flex; gap: var(--s1); margin: var(--s4) calc(-1 * var(--s4)) 0; padding: var(--s2) var(--s4); background: var(--bg); border-bottom: 1px solid var(--rule); overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: none; padding: var(--s2) var(--s3); border: 0; border-radius: 999px; background: none; color: var(--text2); font-weight: 500; cursor: pointer; }
+  .tab[aria-selected="true"] { background: var(--rose); color: var(--on-rose); }
+
+  /* плитки с числами */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s2); margin-top: var(--s4); }
+  .tile { padding: var(--s3); border-radius: 12px; background: var(--surface); }
+  .tile .k { color: var(--text2); font-size: var(--t-meta); }
+  .tile .v { font: 600 22px/1.2 var(--sans); font-variant-numeric: tabular-nums; }
+  .tile .s { color: var(--text2); font-size: var(--t-meta); }
+
+  /* бот и мини-апп */
+  .legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); margin: var(--s2) 0; font-size: var(--t-meta); color: var(--text2); }
+  .legend i, .dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; vertical-align: -1px; }
+  .split { margin: var(--s3) 0; }
+  .split .lbl { display: flex; justify-content: space-between; gap: var(--s3); font-size: var(--t-meta); }
+  .split .lbl span:last-child { color: var(--text2); font-variant-numeric: tabular-nums; }
+  .stack { display: flex; height: 10px; margin-top: var(--s1); border-radius: 999px; overflow: hidden; background: var(--surface); }
+  .stack > span { height: 100%; }
+  .bot { background: var(--bot); } .app { background: var(--app); } .old { background: var(--old); }
+
+  /* график по дням */
+  .chart { display: flex; align-items: flex-end; gap: 2px; height: 140px; margin-top: var(--s3); padding-bottom: var(--s1); border-bottom: 1px solid var(--rule); }
+  .chart .col { flex: 1; display: flex; flex-direction: column-reverse; min-width: 0; height: 100%; }
+  .chart .col > span { width: 100%; }
+  .chart .col > span:last-child { border-radius: 3px 3px 0 0; }
+  .axis { display: flex; justify-content: space-between; margin-top: var(--s1); color: var(--text2); font-size: 11px; }
+
+  /* списки */
+  .list { margin-top: var(--s2); }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: var(--s3); align-items: baseline; width: 100%; padding: var(--s3) 0; border: 0; border-top: 1px solid var(--rule); background: none; text-align: left; }
+  button.row { cursor: pointer; }
+  .list > .row:last-of-type, .list > .more:last-child { border-bottom: 1px solid var(--rule); }
+  .row .n { font-weight: 500; overflow-wrap: anywhere; }
+  .row .m { color: var(--text2); font-size: var(--t-meta); overflow-wrap: anywhere; }
+  .row .c { color: var(--text2); font-size: var(--t-meta); white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  .chip { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 18px; vertical-align: 1px; color: var(--on-rose); }
+  .chip.old { color: var(--text); }
+  .chip.auto { background: none; color: var(--text2); border: 1px solid var(--rule); line-height: 16px; }
+  .more { padding: var(--s2) 0 var(--s4) var(--s4); border-top: 1px solid var(--rule); }
+  .more h3 { margin: var(--s4) 0 var(--s1); font: 600 var(--t-meta)/1.3 var(--sans); color: var(--text2); text-transform: uppercase; letter-spacing: .04em; }
+  .more ul { margin: 0; padding: 0; list-style: none; }
+  .more li { display: grid; grid-template-columns: 1fr auto; gap: var(--s3); padding: var(--s1) 0; font-size: var(--t-meta); }
+  .more li span:last-child { color: var(--text2); white-space: nowrap; text-align: right; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--s4); margin: 0; font-size: var(--t-meta); }
+  .kv dt { color: var(--text2); }
+  .kv dd { margin: 0; }
+  .user-link { padding: 0; border: 0; background: none; color: var(--gold); cursor: pointer; font-size: var(--t-meta); }
+
+  /* поиск и фильтры */
+  .tools { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s4); }
+  .tools input, .tools select { min-height: 40px; padding: 0 var(--s3); border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
+  .tools input { flex: 1 1 200px; min-width: 0; }
+  .tools input::placeholder { color: var(--text2); }
 </style>
 </head>
 <body>
-<main id="app"><div class="muted">Loading…</div></main>
+<header class="bar"><h1>Admin</h1><div><span class="muted" id="stamp"></span> <button class="link" id="refresh">Refresh</button></div></header>
+<nav class="tabs" role="tablist" id="tabs"></nav>
+<main id="app"><div class="muted" style="padding-top: 24px">Loading…</div></main>
 <script>
 const tg = window.Telegram && Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor("#0E0916"); tg.setBackgroundColor("#0E0916"); } catch (e) {} }
@@ -57,6 +104,7 @@ const api = async path => {
   if (!r.ok) throw new Error(r.status);
   return r.json();
 };
+const num = n => Number(n || 0).toLocaleString("en-US");
 const when = ts => ts ? new Date(ts * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "never";
 const ago = ts => {
   if (!ts) return "never";
@@ -66,66 +114,270 @@ const ago = ts => {
   if (m < 1440) return `${Math.floor(m / 60)} h ago`;
   return `${Math.floor(m / 1440)} d ago`;
 };
+const hours = s => {
+  s = s || 0;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  const h = s / 3600;
+  return `${h < 10 ? h.toFixed(1) : Math.round(h)} h`;
+};
+const VIA = { bot: "Bot", app: "Mini App", old: "Earlier" };  // old: записи до того, как источник начали помечать
+const chip = via => $("span", `chip ${via || "old"}`, VIA[via || "old"]);
+const song = it => `${it.title}${it.artist ? `, ${it.artist}` : ""}`;
 
-function totals(t) {
-  const dl = $("dl", "kv");
-  [["Users", t.users], ["Active in 7 days", t.active_7d], ["Tracks played", t.plays],
-   ["Last 24 hours", t.plays_24h], ["Last 7 days", t.plays_7d], ["Favorites saved", t.favorites]]
-    .forEach(([k, v]) => dl.append($("dt", null, k), $("dd", null, String(v))));
-  return dl;
+const TABS = [["overview", "Overview"], ["users", "Users"], ["tracks", "Tracks"], ["activity", "Activity"]];
+const state = { tab: "overview", data: null, q: "", sort: "last", only: "all", open: new Set(), loaded: 0 };
+try { const s = JSON.parse(localStorage.getItem("admin-view") || "{}"); Object.assign(state, { sort: s.sort || "last", only: s.only || "all" }); } catch (e) {}
+const remember = () => { try { localStorage.setItem("admin-view", JSON.stringify({ sort: state.sort, only: state.only })); } catch (e) {} };
+
+/* ---------- Overview ---------- */
+
+function tile(k, v, s) {
+  const t = $("div", "tile");
+  t.append($("div", "k", k), $("div", "v", v));
+  if (s) t.append($("div", "s", s));
+  return t;
 }
+
+function split(label, parts) {
+  const total = parts.bot + parts.app + parts.old;
+  const box = $("div", "split"), lbl = $("div", "lbl"), bar = $("div", "stack");
+  const pct = n => total ? Math.round(n * 100 / total) : 0;
+  lbl.append($("span", null, label), $("span", null,
+    `Bot ${num(parts.bot)} · Mini App ${num(parts.app)}${parts.old ? ` · earlier ${num(parts.old)}` : ""}`));
+  ["bot", "app", "old"].forEach(k => { if (parts[k]) { const s = $("span", k); s.style.width = `${pct(parts[k])}%`; bar.append(s); } });
+  box.append(lbl, bar);
+  return box;
+}
+
+function legend(withOld) {
+  const l = $("div", "legend");
+  ["bot", "app"].concat(withOld ? ["old"] : []).forEach(k => {
+    const s = $("span"), i = $("i", k); s.append(i, document.createTextNode(VIA[k])); l.append(s);
+  });
+  return l;
+}
+
+function dailyChart(daily) {
+  const by = Object.fromEntries(daily.map(d => [d.day, d]));
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    days.push(by[key] || { day: key, bot: 0, app: 0, old: 0, listened: 0 });
+  }
+  const max = Math.max(1, ...days.map(d => d.bot + d.app + d.old));
+  const chart = $("div", "chart");
+  days.forEach(d => {
+    const col = $("div", "col");
+    col.title = `${d.day}: bot ${d.bot}, mini app ${d.app}${d.old ? `, earlier ${d.old}` : ""}, ${hours(d.listened)} listened`;
+    ["bot", "app", "old"].forEach(k => { if (d[k]) { const s = $("span", k); s.style.height = `${d[k] * 100 / max}%`; col.append(s); } });
+    chart.append(col);
+  });
+  const axis = $("div", "axis");
+  const fmt = k => new Date(k + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  axis.append($("span", null, fmt(days[0].day)), $("span", null, `max ${max} a day`), $("span", null, "today"));
+  const box = $("div"); box.append(chart, axis);
+  return box;
+}
+
+function overview(d) {
+  const t = d.totals, v = d.via;
+  const tiles = $("div", "tiles");
+  tiles.append(
+    tile("Users", num(t.users), `${num(t.new_7d)} new in 7 days`),
+    tile("Active today", num(t.active_24h), `${num(t.active_7d)} in 7 days`),
+    tile("Plays", num(t.plays), `${num(t.plays_24h)} today, ${num(t.plays_7d)} in 7 days`),
+    tile("Listened", hours(t.listened), `${num(t.auto)} plays from Wave and recs`),
+    tile("Favorites", num(t.favorites)),
+    tile("Used", `${num(v.visitors_bot)} / ${num(v.visitors_app)}`, "people in bot / mini app"));
+  const hasOld = v.plays.old || v.favorites.old || d.daily.some(x => x.old);
+  const out = [tiles, $("h2", null, "Bot and Mini App"), legend(hasOld),
+    split("Plays", v.plays), split("Favorites added", v.favorites)];
+  if (hasOld) out.push($("div", "muted", "Earlier: records made before the bot started marking where they come from."));
+  out.push($("h2", null, "Plays, last 30 days"), legend(hasOld), dailyChart(d.daily));
+  return out;
+}
+
+/* ---------- Users ---------- */
+
+function userMatches(u) {
+  const q = state.q.trim().toLowerCase();
+  if (q && !`${u.id} ${u.name} ${u.tg_name}`.toLowerCase().includes(q)) return false;
+  const bot = u.last_bot || u.plays_bot, app = u.last_app || u.plays_app;
+  if (state.only === "bot") return bot && !app;
+  if (state.only === "app") return app && !bot;
+  if (state.only === "both") return bot && app;
+  return true;
+}
+
+const SORTS = { last: "Last active", plays: "Most plays", listened: "Most listened", favorites: "Most favorites", first_seen: "Newest" };
 
 function listItems(title, items, line) {
   const box = $("div"); box.append($("h3", null, title));
   if (!items.length) { box.append($("div", "muted", "Nothing yet.")); return box; }
   const ul = $("ul");
-  items.forEach(it => { const li = $("li"), [a, b] = line(it); li.append($("span", null, a), $("span", null, b)); ul.append(li); });
+  items.forEach(it => { const li = $("li"), [a, b] = line(it); li.append(a instanceof Node ? a : $("span", null, a), $("span", null, b)); ul.append(li); });
   box.append(ul); return box;
 }
 
-function userRow(u, list) {
+function songLine(it, extra) {
+  const s = $("span", null, song(it));
+  if (it.via !== undefined) s.append(chip(it.via));
+  if (it.auto) s.append($("span", "chip auto", "auto"));
+  if (extra) s.append(document.createTextNode(extra));
+  return s;
+}
+
+async function userDetails(u, more) {
+  more.replaceChildren($("div", "muted", "Loading…"));
+  try {
+    const d = await api(`/api/admin/user?id=${u.id}`);
+    const kv = $("dl", "kv");
+    [["First seen", when(u.first_seen)], ["Bot, last message", u.last_bot ? `${when(u.last_bot)} (${ago(u.last_bot)})` : "never"],
+     ["Mini App, last open", u.last_app ? `${when(u.last_app)} (${ago(u.last_app)})` : "never"],
+     ["Last play", u.last_play ? `${when(u.last_play)} (${ago(u.last_play)})` : "never"],
+     ["Plays", `${num(u.plays)}: bot ${num(u.plays_bot)}, mini app ${num(u.plays_app)}`],
+     ["Listened", hours(u.listened)], ["Language", u.lang || "not chosen"],
+     ["Photo, background", `${u.avatar ? "custom" : "default"}, ${u.bg ? "custom" : "default"}`]]
+      .forEach(([k, v]) => kv.append($("dt", null, k), $("dd", null, v)));
+    more.replaceChildren(kv,
+      listItems("Top artists", d.top_artists, a => [a.artist, `${a.plays}`]),
+      listItems("Hidden artists", d.disliked, a => [a.artist, `until ${when(a.until)}`]),
+      listItems(`Favorites (${u.favorites})`, d.favorites, f => [songLine(f), when(f.ts)]),
+      listItems("Recent plays", d.plays, p => [songLine(p, p.listened != null ? ` · ${Math.round(p.listened / 60 * 10) / 10} of ${Math.round(p.duration / 60 * 10) / 10} min` : ""), when(p.ts)]));
+  } catch (e) { more.replaceChildren($("div", "err", "Could not load details.")); }
+}
+
+function userRow(u) {
   const label = u.name || u.tg_name || "No name";
   const row = $("button", "row"), left = $("div"), right = $("div", "c");
-  row.setAttribute("aria-expanded", "false");
-  left.append($("div", "n", label), $("div", "m id", `ID ${u.id}${u.name && u.tg_name && u.name !== u.tg_name ? `, Telegram: ${u.tg_name}` : ""}`));
-  right.append(document.createTextNode(`${u.plays} plays, ${u.favorites} fav`), document.createElement("br"), document.createTextNode(ago(u.last)));
+  const open = state.open.has(u.id);
+  row.setAttribute("aria-expanded", String(open));
+  const n = $("div", "n", label);
+  if (u.last_bot || u.plays_bot) n.append(chip("bot"));
+  if (u.last_app || u.plays_app) n.append(chip("app"));
+  left.append(n, $("div", "m id", `ID ${u.id}${u.name && u.tg_name && u.name !== u.tg_name ? `, Telegram: ${u.tg_name}` : ""}`));
+  right.append(document.createTextNode(`${num(u.plays)} plays, ${num(u.favorites)} fav`), document.createElement("br"), document.createTextNode(ago(u.last)));
   row.append(left, right);
+  const frag = [row];
   let more = null;
-  row.onclick = async () => {
-    if (more) { more.remove(); more = null; row.setAttribute("aria-expanded", "false"); return; }
-    more = $("div", "more"); more.append($("div", "muted", "Loading…"));
-    row.after(more); row.setAttribute("aria-expanded", "true");
-    try {
-      const d = await api(`/api/admin/user?id=${u.id}`);
-      more.replaceChildren(
-        $("div", "muted", `First seen ${when(u.first_seen)}. Photo: ${u.avatar ? "custom" : "default"}. Background: ${u.bg ? "custom" : "default"}.`),
-        listItems("Favorites", d.favorites, f => [`${f.title}${f.artist ? `, ${f.artist}` : ""}`, ""]),
-        listItems("Recent plays", d.plays, p => [`${p.title}${p.artist ? `, ${p.artist}` : ""}`, when(p.ts)]));
-    } catch (e) { more.replaceChildren($("div", "err", "Could not load details.")); }
+  const show = () => { more = $("div", "more"); row.after(more); userDetails(u, more); };
+  row.onclick = () => {
+    if (more) { more.remove(); more = null; state.open.delete(u.id); row.setAttribute("aria-expanded", "false"); return; }
+    state.open.add(u.id); row.setAttribute("aria-expanded", "true"); show();
   };
-  return row;
+  if (open) queueMicrotask(show);  // после обновления раскрытые пользователи остаются раскрытыми
+  return frag;
+}
+
+function usersTab(d) {
+  const tools = $("div", "tools");
+  const q = $("input"); q.type = "search"; q.placeholder = "Name or ID"; q.value = state.q;
+  const sort = $("select"); Object.entries(SORTS).forEach(([k, v]) => { const o = $("option", null, v); o.value = k; sort.append(o); }); sort.value = state.sort;
+  const only = $("select");
+  [["all", "Everyone"], ["both", "Bot and Mini App"], ["bot", "Only bot"], ["app", "Only Mini App"]].forEach(([k, v]) => { const o = $("option", null, v); o.value = k; only.append(o); });
+  only.value = state.only;
+  tools.append(q, sort, only);
+  const count = $("h2"), list = $("div", "list");
+  const fill = () => {
+    const users = d.users.filter(userMatches).sort((a, b) => (b[state.sort] || 0) - (a[state.sort] || 0));
+    count.textContent = `${users.length} of ${d.users.length}`;
+    list.replaceChildren(...(users.length ? users.flatMap(userRow) : [$("div", "muted", "No one found.")]));
+  };
+  q.oninput = () => { state.q = q.value; fill(); };
+  sort.onchange = () => { state.sort = sort.value; remember(); fill(); };
+  only.onchange = () => { state.only = only.value; remember(); fill(); };
+  fill();
+  return [tools, count, list];
+}
+
+/* ---------- Tracks ---------- */
+
+function plainList(items, line) {
+  const list = $("div", "list");
+  if (!items.length) list.append($("div", "muted", "Nothing yet."));
+  items.forEach(it => {
+    const [a, b, c] = line(it), row = $("div", "row"), left = $("div");
+    left.append($("div", "n", a)); if (b) left.append($("div", "m", b));
+    row.append(left, $("div", "c", c)); list.append(row);
+  });
+  return list;
+}
+
+function tracksTab(d) {
+  const total = d.sources.reduce((s, x) => s + x.plays, 0) || 1;
+  return [
+    $("h2", null, "Top tracks"),
+    plainList(d.top_tracks, t => [t.title, t.artist, `${num(t.plays)} plays · ${num(t.users)} ppl`]),
+    $("h2", null, "Top artists"),
+    plainList(d.top_artists, a => [a.artist, "", `${num(a.plays)} plays · ${num(a.users)} ppl`]),
+    $("h2", null, "Where songs came from"),
+    plainList(d.sources, s => [s.source, "", `${num(s.plays)} · ${Math.round(s.plays * 100 / total)}%`]),
+  ];
+}
+
+/* ---------- Activity ---------- */
+
+function activityTab(d) {
+  const list = $("div", "list");
+  if (!d.recent.length) list.append($("div", "muted", "No plays yet."));
+  d.recent.forEach(p => {
+    const row = $("div", "row"), left = $("div"), n = $("div", "n", song(p));
+    n.append(chip(p.via)); if (p.auto) n.append($("span", "chip auto", "auto"));
+    const who = $("button", "user-link", p.name || `ID ${p.user}`);
+    who.onclick = () => { state.q = String(p.user); state.open = new Set([p.user]); go("users"); };
+    const m = $("div", "m"); m.append(who);
+    if (p.listened != null) m.append(document.createTextNode(` · heard ${hours(p.listened)} of ${hours(p.duration)}`));
+    left.append(n, m);
+    row.append(left, $("div", "c", ago(p.ts)));
+    list.append(row);
+  });
+  return [$("h2", null, "Latest plays, everyone"), list];
+}
+
+/* ---------- каркас ---------- */
+
+const RENDER = { overview, users: usersTab, tracks: tracksTab, activity: activityTab };
+
+function drawTabs() {
+  const nav = document.getElementById("tabs");
+  nav.replaceChildren(...TABS.map(([k, label]) => {
+    const b = $("button", "tab", label);
+    b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(state.tab === k));
+    b.onclick = () => go(k);
+    return b;
+  }));
+}
+
+function draw() {
+  drawTabs();
+  if (state.data) document.getElementById("app").replaceChildren(...RENDER[state.tab](state.data));
+}
+
+function go(tab) {
+  state.tab = tab;
+  if (location.hash !== `#${tab}`) history.replaceState(null, "", `#${tab}`);
+  draw(); window.scrollTo(0, 0);
+}
+
+function stamp() {
+  document.getElementById("stamp").textContent = state.loaded ? `updated ${ago(state.loaded / 1000)}` : "";
 }
 
 async function load() {
-  const app = document.getElementById("app");
-  let d;
-  try { d = await api("/api/admin"); }
-  catch (e) { app.replaceChildren($("div", "err", "Not available.")); return; }
-  const head = $("div", "bar"), refresh = $("button", "link", "Refresh");
-  refresh.onclick = load;
-  head.append($("h1", null, "Admin"), refresh);
-  const users = $("div", "list");
-  if (!d.users.length) users.append($("div", "muted", "No users yet."));
-  d.users.forEach(u => users.append(userRow(u)));
-  const top = $("div", "list");
-  d.top_tracks.forEach(t => {
-    const row = $("div", "row"), left = $("div");
-    left.append($("div", "n", t.title), $("div", "m", t.artist));
-    row.append(left, $("div", "c", `${t.plays}`)); top.append(row);
-  });
-  app.replaceChildren(head, $("h2", null, "Totals"), totals(d.totals),
-    $("h2", null, `Users (${d.users.length})`), users, $("h2", null, "Top tracks"), top);
+  try { state.data = await api(`/api/admin?tzo=${-new Date().getTimezoneOffset()}`); }
+  catch (e) { if (!state.data) document.getElementById("app").replaceChildren($("div", "err", "Not available.")); return; }
+  state.loaded = Date.now(); stamp();
+  const y = window.scrollY; draw(); window.scrollTo(0, y);
 }
+
+const fromHash = location.hash.slice(1);
+if (RENDER[fromHash]) state.tab = fromHash;
+document.getElementById("refresh").onclick = load;
+// данные обновляются сами раз в минуту, пока админка открыта; набранный поиск при этом не мешаем
+setInterval(() => { stamp(); if (!document.hidden && document.activeElement?.tagName !== "INPUT") load(); }, 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - state.loaded > 60000) load(); });
+drawTabs();
 load();
 </script>
 </body>

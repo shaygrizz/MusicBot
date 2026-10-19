@@ -69,6 +69,10 @@ MIGRATIONS = [
     ),  # сколько секунд песни человек реально послушал (страница присылает при смене песни)
     ("plays", "auto", "INTEGER"),  # 1 — песня сыграна из рекомендаций или волны, а не выбрана самим пользователем
     ("favorites", "url", "TEXT"),  # ссылка на источник (песня из плейлиста YouTube): качаем по ней, без поиска
+    ("plays", "via", "TEXT"),  # откуда включили: bot или app; пусто — запись старше этой колонки
+    ("favorites", "via", "TEXT"),  # откуда добавили: bot или app
+    ("users", "last_bot", "INTEGER"),  # когда человек последний раз писал боту
+    ("users", "last_app", "INTEGER"),  # когда последний раз открывал мини-апп
 ]
 
 
@@ -139,66 +143,187 @@ async def set_avatar_token(user_id: int, token: str) -> None:
         await db.commit()
 
 
-async def admin_overview() -> dict:
-    """Сводка для админки: общие числа и список всех пользователей."""
+VIAS = ("bot", "app")  # откуда пришло действие; пустое via — записи старше разметки
+
+
+def _by_via(rows) -> dict:
+    out = {"bot": 0, "app": 0, "old": 0}
+    for via, n in rows:
+        out[via if via in VIAS else "old"] += n or 0
+    return out
+
+
+async def admin_overview(tz_minutes: int | None = None) -> dict:
+    """Сводка для админки по всем источникам: бот и мини-апп пишут в одни таблицы, via говорит, откуда запись.
+    tz_minutes — смещение часов админа от UTC: дни на графике совпадают с его календарём."""
     now = int(time.time())
+    local = "localtime" if tz_minutes is None else f"{int(tz_minutes) * 60} seconds"
     async with aiosqlite.connect(DB_PATH) as db:
 
-        async def one(sql, *args):
+        async def rows(sql, *args):
             cur = await db.execute(sql, args)
-            return (await cur.fetchone())[0] or 0
+            return await cur.fetchall()
 
+        users = []
+        for row in await rows(
+            "WITH ids AS (SELECT user_id FROM users UNION SELECT user_id FROM plays UNION SELECT user_id FROM favorites),"
+            " p AS (SELECT user_id, COUNT(*) n, SUM(via='bot') b, SUM(via='app') a,"
+            " SUM(COALESCE(listened, duration, 0)) sec, MIN(ts) first, MAX(ts) last FROM plays GROUP BY user_id),"
+            " f AS (SELECT user_id, COUNT(*) n, MIN(ts) first FROM favorites GROUP BY user_id)"
+            " SELECT ids.user_id, u.name, u.display_name, u.first_seen, u.avatar_token, u.bg_token, u.lang,"
+            " u.last_bot, u.last_app, p.n, p.b, p.a, p.sec, p.first, p.last, f.n, f.first"
+            " FROM ids LEFT JOIN users u ON u.user_id=ids.user_id LEFT JOIN p ON p.user_id=ids.user_id"
+            " LEFT JOIN f ON f.user_id=ids.user_id"
+        ):
+            uid, tg, dn, fs, av, bg, lang, lbot, lapp, pn, pb, pa, sec, pfirst, plast, fn, ffirst = row
+            # строку users могла создать не первая встреча, а поздняя настройка: берём самое раннее, что известно
+            first = min((t for t in (fs, pfirst, ffirst) if t), default=0)
+            users.append(
+                {
+                    "id": uid,
+                    "tg_name": tg or "",
+                    "name": dn or "",
+                    "lang": lang or "",
+                    "avatar": bool(av),
+                    "bg": bool(bg),
+                    "first_seen": first,
+                    "last_bot": lbot or 0,
+                    "last_app": lapp or 0,
+                    "last_play": plast or 0,
+                    "last": max(lbot or 0, lapp or 0, plast or 0),
+                    "plays": pn or 0,
+                    "plays_bot": pb or 0,
+                    "plays_app": pa or 0,
+                    "listened": sec or 0,
+                    "favorites": fn or 0,
+                }
+            )
+        users.sort(key=lambda u: (u["last"], u["first_seen"]), reverse=True)
+
+        plays, listened, auto, p24, p7 = (
+            await rows(
+                "SELECT COUNT(*), COALESCE(SUM(COALESCE(listened, duration, 0)), 0), COALESCE(SUM(auto), 0),"
+                " COALESCE(SUM(ts>?), 0), COALESCE(SUM(ts>?), 0) FROM plays",
+                now - 86400,
+                now - 7 * 86400,
+            )
+        )[0]
         totals = {
-            "users": await one(
-                "SELECT COUNT(*) FROM (SELECT user_id FROM users UNION SELECT user_id FROM plays"
-                " UNION SELECT user_id FROM favorites)"
-            ),
-            "plays": await one("SELECT COUNT(*) FROM plays"),
-            "plays_24h": await one("SELECT COUNT(*) FROM plays WHERE ts>?", now - 86400),
-            "plays_7d": await one("SELECT COUNT(*) FROM plays WHERE ts>?", now - 7 * 86400),
-            "active_7d": await one("SELECT COUNT(DISTINCT user_id) FROM plays WHERE ts>?", now - 7 * 86400),
-            "favorites": await one("SELECT COUNT(*) FROM favorites"),
+            "users": len(users),
+            "new_7d": sum(u["first_seen"] > now - 7 * 86400 for u in users),
+            "active_24h": sum(u["last"] > now - 86400 for u in users),
+            "active_7d": sum(u["last"] > now - 7 * 86400 for u in users),
+            "plays": plays,
+            "plays_24h": p24,
+            "plays_7d": p7,
+            "listened": listened,
+            "auto": auto,
+            "favorites": (await rows("SELECT COUNT(*) FROM favorites"))[0][0],
         }
-        cur = await db.execute(
-            "SELECT i.user_id, u.name, u.display_name, u.first_seen, u.avatar_token, u.bg_token,"
-            " (SELECT COUNT(*) FROM plays p WHERE p.user_id=i.user_id),"
-            " (SELECT MAX(ts) FROM plays p WHERE p.user_id=i.user_id),"
-            " (SELECT COUNT(*) FROM favorites f WHERE f.user_id=i.user_id)"
-            " FROM (SELECT user_id FROM users UNION SELECT user_id FROM plays UNION SELECT user_id FROM favorites) i"
-            " LEFT JOIN users u ON u.user_id=i.user_id ORDER BY 8 DESC, u.first_seen DESC"
+        via = {
+            "plays": _by_via(await rows("SELECT via, COUNT(*) FROM plays GROUP BY via")),
+            "favorites": _by_via(await rows("SELECT via, COUNT(*) FROM favorites GROUP BY via")),
+            "visitors_bot": sum(bool(u["last_bot"]) for u in users),
+            "visitors_app": sum(bool(u["last_app"]) for u in users),
+        }
+        daily = {}
+        for d, v, n, sec in await rows(
+            "SELECT strftime('%Y-%m-%d', ts, 'unixepoch', ?) d, via, COUNT(*), SUM(COALESCE(listened, duration, 0))"
+            " FROM plays WHERE ts >= ? GROUP BY d, via",
+            local,
+            now - 31 * 86400,
+        ):
+            day = daily.setdefault(d, {"day": d, "bot": 0, "app": 0, "old": 0, "listened": 0})
+            day[v if v in VIAS else "old"] += n
+            day["listened"] += sec or 0
+        top_tracks = await rows(
+            "SELECT MAX(title), MAX(artist), COUNT(*) c, COUNT(DISTINCT user_id), SUM(COALESCE(listened, duration, 0))"
+            " FROM plays GROUP BY LOWER(title), LOWER(artist) ORDER BY c DESC LIMIT 25"
         )
-        users = [
+        top_artists = await rows(
+            "SELECT MAX(artist), COUNT(*) c, COUNT(DISTINCT user_id) FROM plays WHERE artist != ''"
+            " GROUP BY LOWER(artist) ORDER BY c DESC LIMIT 25"
+        )
+        sources = await rows("SELECT COALESCE(source, ''), COUNT(*) FROM plays GROUP BY 1 ORDER BY 2 DESC")
+        recent = await rows(
+            "SELECT p.user_id, COALESCE(NULLIF(u.display_name, ''), u.name, ''), p.title, p.artist, p.via, p.auto,"
+            " p.listened, p.duration, p.ts FROM plays p LEFT JOIN users u ON u.user_id=p.user_id"
+            " ORDER BY p.id DESC LIMIT 60"
+        )
+    return {
+        "totals": totals,
+        "via": via,
+        "daily": sorted(daily.values(), key=lambda d: d["day"]),
+        "users": users,
+        "top_tracks": [
+            {"title": t or "", "artist": a or "", "plays": c, "users": n, "listened": s or 0}
+            for t, a, c, n, s in top_tracks
+        ],
+        "top_artists": [{"artist": a or "", "plays": c, "users": n} for a, c, n in top_artists],
+        "sources": [{"source": s or "unknown", "plays": c} for s, c in sources],
+        "recent": [
             {
-                "id": i,
-                "tg_name": n or "",
-                "name": dn or "",
-                "first_seen": fs or 0,
-                "avatar": av or "",
-                "bg": bg or "",
-                "plays": pc,
-                "last": last or 0,
-                "favorites": fc,
+                "user": uid,
+                "name": name,
+                "title": t or "",
+                "artist": a or "",
+                "via": v or "",
+                "auto": bool(au),
+                "listened": li,
+                "duration": d or 0,
+                "ts": ts or 0,
             }
-            for i, n, dn, fs, av, bg, pc, last, fc in await cur.fetchall()
-        ]
-        cur = await db.execute(
-            "SELECT title, artist, COUNT(*) c FROM plays GROUP BY LOWER(title), LOWER(artist) ORDER BY c DESC LIMIT 10"
-        )
-        top = [{"title": t or "", "artist": a or "", "plays": c} for t, a, c in await cur.fetchall()]
-    return {"totals": totals, "users": users, "top_tracks": top}
+            for uid, name, t, a, v, au, li, d, ts in recent
+        ],
+    }
 
 
 async def admin_user(user_id: int) -> dict:
-    """Подробности одного пользователя: последние прослушивания и избранное."""
+    """Подробности одного пользователя: прослушивания, избранное, любимые исполнители и кого он скрыл."""
     async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            "SELECT title, artist, source, kind, ts FROM plays WHERE user_id=? ORDER BY id DESC LIMIT 50", (user_id,)
+
+        async def rows(sql, *args):
+            cur = await db.execute(sql, args)
+            return await cur.fetchall()
+
+        plays = await rows(
+            "SELECT title, artist, source, via, auto, listened, duration, ts FROM plays WHERE user_id=?"
+            " ORDER BY id DESC LIMIT 100",
+            user_id,
         )
-        plays = [
-            {"title": t or "", "artist": a or "", "source": s or "", "kind": k or "", "ts": ts or 0}
-            for t, a, s, k, ts in await cur.fetchall()
-        ]
-    return {"plays": plays, "favorites": await fav_list(user_id, 100)}
+        favorites = await rows(
+            "SELECT title, artist, via, ts FROM favorites WHERE user_id=? ORDER BY id DESC LIMIT 200", user_id
+        )
+        artists = await rows(
+            "SELECT MAX(artist), COUNT(*) c FROM plays WHERE user_id=? AND artist != ''"
+            " GROUP BY LOWER(artist) ORDER BY c DESC LIMIT 10",
+            user_id,
+        )
+        disliked = await rows(
+            "SELECT artist, until FROM disliked WHERE user_id=? AND until>? ORDER BY until DESC",
+            user_id,
+            int(time.time()),
+        )
+    return {
+        "plays": [
+            {
+                "title": t or "",
+                "artist": a or "",
+                "source": s or "",
+                "via": v or "",
+                "auto": bool(au),
+                "listened": li,
+                "duration": d or 0,
+                "ts": ts or 0,
+            }
+            for t, a, s, v, au, li, d, ts in plays
+        ],
+        "favorites": [
+            {"title": t or "", "artist": a or "", "via": v or "", "ts": ts or 0} for t, a, v, ts in favorites
+        ],
+        "top_artists": [{"artist": a, "plays": c} for a, c in artists],
+        "disliked": [{"artist": a, "until": u} for a, u in disliked],
+    }
 
 
 FAV_LIMIT = 2000  # после добавления плейлистов избранное бывает большим; список не должен молча обрезаться
@@ -231,11 +356,14 @@ async def fav_url(user_id: int, artist: str, title: str) -> str:
     return (row[0] or "") if row else ""
 
 
-async def fav_add(user_id: int, artist: str, title: str, duration: int = 0, cover: str = "", url: str = "") -> None:
-    await fav_add_many(user_id, [{"artist": artist, "title": title, "duration": duration, "cover": cover, "url": url}])
+async def fav_add(
+    user_id: int, artist: str, title: str, duration: int = 0, cover: str = "", url: str = "", via: str = ""
+) -> None:
+    item = {"artist": artist, "title": title, "duration": duration, "cover": cover, "url": url}
+    await fav_add_many(user_id, [item], via)
 
 
-async def fav_add_many(user_id: int, items: list[dict]) -> int:
+async def fav_add_many(user_id: int, items: list[dict], via: str = "") -> int:
     """Добавляет пачку песен одной транзакцией (плейлист). Уже добавленные пропускаются. Возвращает, сколько новых."""
     now = int(time.time())
     rows = [
@@ -248,6 +376,7 @@ async def fav_add_many(user_id: int, items: list[dict]) -> int:
             it.get("cover") or "",
             it.get("url") or "",
             now,
+            via or None,
         )
         # список избранного идёт от новых к старым, поэтому вставляем с конца: первая песня плейлиста окажется сверху
         for it in reversed(items)
@@ -256,7 +385,8 @@ async def fav_add_many(user_id: int, items: list[dict]) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         before = db.total_changes
         await db.executemany(
-            "INSERT OR IGNORE INTO favorites(user_id, key, title, artist, duration, cover, url, ts) VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT OR IGNORE INTO favorites(user_id, key, title, artist, duration, cover, url, ts, via)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
             rows,
         )
         await db.commit()
@@ -288,11 +418,18 @@ async def get_play(play_id: int) -> dict | None:
     }
 
 
-async def touch_user(user_id: int, name: str) -> None:
+async def touch_user(user_id: int, name: str, via: str = "bot") -> None:
+    """Человек пришёл в бот или в мини-апп: запоминаем имя из Telegram и время визита.
+    Строку могли создать раньше без имени (язык, фото из мини-аппа) — тогда имя дописывается."""
+    now = int(time.time())
+    seen = "last_app" if via == "app" else "last_bot"
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT OR IGNORE INTO users(user_id, name, first_seen) VALUES (?,?,?)",
-            (user_id, name, int(time.time())),
+            f"INSERT INTO users(user_id, name, first_seen, {seen}) VALUES (?,?,?,?) "
+            f"ON CONFLICT(user_id) DO UPDATE SET {seen}=excluded.{seen}, "
+            "name=CASE WHEN excluded.name<>'' THEN excluded.name ELSE users.name END, "
+            "first_seen=COALESCE(users.first_seen, excluded.first_seen)",
+            (user_id, name, now, now),
         )
         await db.commit()
 
@@ -343,14 +480,16 @@ async def log_play(
     kind: str,
     cover: str = "",
     auto: bool = False,
+    via: str = "",
 ) -> int:
     """Записывает прослушивание и возвращает его id (на него ссылается кнопка «в избранное»).
-    auto — песню подобрали рекомендации или волна: в историю она попадает, но вкус пользователя не определяет."""
+    auto — песню подобрали рекомендации или волна: в историю она попадает, но вкус пользователя не определяет.
+    via — где её включили: bot или app (для админки)."""
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "INSERT INTO plays(user_id, title, artist, duration, source, url, kind, ts, cover, auto) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (user_id, title, artist, duration, source, url, kind, int(time.time()), cover, int(auto)),
+            "INSERT INTO plays(user_id, title, artist, duration, source, url, kind, ts, cover, auto, via) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (user_id, title, artist, duration, source, url, kind, int(time.time()), cover, int(auto), via or None),
         )
         await db.commit()
         return cur.lastrowid

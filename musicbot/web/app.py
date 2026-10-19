@@ -548,7 +548,11 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
 
     async def admin_overview(request: web.Request):
         await admin_only(request)
-        return web.json_response(await db.admin_overview())
+        try:  # дни на графике считаются по часам админа
+            tz = max(-14 * 60, min(14 * 60, int(request.query["tzo"])))
+        except (KeyError, ValueError):
+            tz = None
+        return web.json_response(await db.admin_overview(tz))
 
     async def admin_user(request: web.Request):
         await admin_only(request)
@@ -564,6 +568,9 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             tz = max(-14 * 60, min(14 * 60, int(request.query["tzo"])))
         except (KeyError, ValueError):
             tz = None
+        # мини-апп открыли: человек виден в админке с именем из Telegram, даже если боту он не писал
+        name = " ".join(filter(None, (user.get("first_name"), user.get("last_name"))))
+        await db.touch_user(user["id"], name, via="app")
         data = await db.dashboard(user["id"], tz)
         data["user"] = {"id": user["id"], "name": user.get("first_name", "")}
         profile = await db.get_profile(user["id"])
@@ -687,7 +694,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
                 batch.append(fav)
         if not batch:
             raise web.HTTPBadRequest(text="empty")
-        failed = await favlib.play_favorites(bot, user["id"], user["id"], batch, progress=False)
+        failed = await favlib.play_favorites(bot, user["id"], user["id"], batch, progress=False, via="app")
         return web.json_response({"sent": len(batch) - failed, "failed": failed})
 
     async def serve_avatar(request: web.Request):
@@ -711,7 +718,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             duration = int(body.get("duration") or 0)
             # в избранное попадает именно то, что человек слушал: тот же файл и та же ссылка, а не новый подбор по названию
             src, heard = _heard_version(user["id"], str(body.get("vid") or ""), artist, title, duration, body)
-            await db.fav_add(user["id"], artist, title, duration, cover, (heard.origin if heard else "") or src)
+            await db.fav_add(user["id"], artist, title, duration, cover, (heard.origin if heard else "") or src, "app")
             file = (
                 heard.path if heard else audiocache.path_for(src)
             )  # шторка и плеер держат файл 15 минут, кэш звука дольше
@@ -763,6 +770,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
                 "audio",
                 r.thumb_url,
                 auto=bool(body.get("auto")),
+                via="app",
             )
         return web.json_response({"url": f"/api/file/{tok}", "play": play_ids.get(tok)})
 
@@ -934,7 +942,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         versions[vid] = (entry[0], now, r)
         if request.match_info["tok"] not in played:
             played.add(request.match_info["tok"])
-            await db.log_play(uid, r.title, r.artist, r.duration, r.source, r.url, "audio", r.thumb_url)
+            await db.log_play(uid, r.title, r.artist, r.duration, r.source, r.url, "audio", r.thumb_url, via="app")
         tok = request.match_info["tok"]
         # файл на диске перепакован и по байтам не совпадает с потоком YouTube: начатый поток продолжаем
         # тем же источником, иначе перемотка (запрос с Range) получит куски другого файла
@@ -1033,7 +1041,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             raise web.HTTPBadGateway(text="download failed")
         if tok not in played:  # одно прослушивание на файл, сколько бы раз его ни запросили
             played.add(tok)
-            await db.log_play(user["id"], d.title, d.artist, d.duration, d.source, r.url, "audio")
+            await db.log_play(user["id"], d.title, d.artist, d.duration, d.source, r.url, "audio", via="app")
         if mode == "chat":
             if bot is None:
                 raise web.HTTPServiceUnavailable(text="no bot")

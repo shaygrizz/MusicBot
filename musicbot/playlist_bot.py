@@ -225,7 +225,7 @@ async def on_playlist_button(cb: CallbackQuery, bot: Bot):
             pass
         return
     if action == "f":
-        added = await db.fav_add_many(uid, [t.as_item() for t in pl.tracks])
+        added = await db.fav_add_many(uid, [t.as_item() for t in pl.tracks], "bot")
         await cb.answer(texts.say("pl_fav_done", n=added, total=len(pl.tracks)), show_alert=True)
         favcache.spawn(favcache.backfill(uid, await db.fav_list(uid)))  # песни качаются в фоне по одной
         return
@@ -378,7 +378,7 @@ async def on_inbox_button(cb: CallbackQuery, bot: Bot):
             pass
         return
     items = list(box["items"].values())
-    added = await db.fav_add_many(uid, items)
+    added = await db.fav_add_many(uid, items, "bot")
     for it in items:
         # тот же ключ, что посчитает избранное при отправке в чат: песня уйдёт по file_id мгновенно, без YouTube
         key = search.lazy_for(it["artist"], it["title"], it["duration"])

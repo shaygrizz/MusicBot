@@ -98,12 +98,14 @@ async def _send_audio(bot: Bot, chat_id: int, audio, **kwargs):
             await asyncio.sleep(e.retry_after + 0.5)
 
 
-async def deliver_favorite(bot: Bot, chat_id: int, user_id: int, prep: dict) -> None:
+async def deliver_favorite(bot: Bot, chat_id: int, user_id: int, prep: dict, via: str = "bot") -> None:
     cached, d = prep["cached"], prep["d"]
     try:
         if cached:
             file_id, title, artist, duration = cached
-            play_id = await db.log_play(user_id, title, artist, duration, "cache", prep["lazy"], "audio", prep["cover"])
+            play_id = await db.log_play(
+                user_id, title, artist, duration, "cache", prep["lazy"], "audio", prep["cover"], via=via
+            )
             await _send_audio(
                 bot,
                 chat_id,
@@ -115,7 +117,7 @@ async def deliver_favorite(bot: Bot, chat_id: int, user_id: int, prep: dict) -> 
             )
         else:
             play_id = await db.log_play(
-                user_id, d.title, d.artist, d.duration, d.source, prep["lazy"], "audio", prep["cover"]
+                user_id, d.title, d.artist, d.duration, d.source, prep["lazy"], "audio", prep["cover"], via=via
             )
             sent = await _send_audio(
                 bot,
@@ -143,12 +145,14 @@ async def send_tracks(
     stopped: Callable[[], bool] = lambda: False,
     status_markup: InlineKeyboardMarkup | None = None,
     failures: list[dict] | None = None,
+    via: str = "bot",
 ) -> int:
     """Отправляет песни одну за другой. Telegram проигрывает аудио в чате снизу вверх (после песни идёт сообщение
     выше), поэтому отправляем в обратном порядке: первая песня списка оказывается внизу и играет первой.
     Пока уходит текущая, следующая уже готовится. stopped() проверяется между песнями;
     status_markup — кнопки под сообщением о ходе отправки (например, «Стоп»);
-    в failures (если передан) складываются песни, которые не удалось отправить, в порядке списка.
+    в failures (если передан) складываются песни, которые не удалось отправить, в порядке списка;
+    via — откуда попросили песни (bot или app), пишется в историю для админки.
     Возвращает, сколько песен не удалось отправить."""
     batch = list(reversed(batch))
     status = (
@@ -176,7 +180,7 @@ async def send_tracks(
             nxt = asyncio.create_task(prepare(user_id, batch[i + 1])) if i + 1 < len(batch) else None
             if prep is not None:
                 try:
-                    await deliver_favorite(bot, chat_id, user_id, prep)
+                    await deliver_favorite(bot, chat_id, user_id, prep, via)
                 except Exception:
                     logging.exception("песня не отправлена")
                     failed += 1
@@ -200,5 +204,7 @@ async def send_tracks(
     return failed
 
 
-async def play_favorites(bot: Bot, chat_id: int, user_id: int, batch: list[dict], progress: bool = True) -> int:
-    return await send_tracks(bot, chat_id, user_id, batch, prepare_favorite, progress)
+async def play_favorites(
+    bot: Bot, chat_id: int, user_id: int, batch: list[dict], progress: bool = True, via: str = "bot"
+) -> int:
+    return await send_tracks(bot, chat_id, user_id, batch, prepare_favorite, progress, via=via)
