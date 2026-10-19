@@ -314,6 +314,24 @@
   /* «Открытия»: чарт страны с обложками и любимые исполнители */
   .list.chart li { grid-template-columns: var(--s5) 44px minmax(0, 1fr); align-items: center; }
   .list.chart img, .list.chart .noimg { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; display: block; background: var(--surface); }
+  /* заголовок чарта: страна светится и открывает выбор чарта */
+  .charthead { display: flex; flex-wrap: wrap; align-items: center; gap: 0 .35em; }
+  .chartpick { display: inline-flex; align-items: center; gap: var(--s2); padding: 0; border: 0; background: none; font: inherit; color: var(--rose); cursor: pointer;
+    text-shadow: 0 0 10px rgba(229, 96, 143, .75), 0 0 22px rgba(229, 96, 143, .4); }
+  .chartpick > svg { width: 18px; height: 18px; filter: drop-shadow(0 0 4px rgba(229, 96, 143, .8)); }
+  .chartpick .flag { box-shadow: 0 0 10px rgba(229, 96, 143, .55); }
+  .flag { flex: none; display: inline-block; width: 22px; height: 22px; border-radius: 50%; overflow: hidden; background: var(--surface); box-shadow: 0 0 0 1px rgba(243, 239, 248, .15); }
+  .flag svg { width: 100%; height: 100%; }
+  .flag.globe { background: none; box-shadow: none; color: var(--rose); }
+  .flag.globe path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+  .flagcode { fill: var(--text); font: 600 9px var(--sans); }
+  .charttitle { margin-bottom: var(--s3); font: 400 var(--t-h2)/1.2 var(--display); }
+  .chartopts { display: grid; gap: var(--s2); }
+  .chartopt { display: grid; grid-template-columns: 28px 1fr 24px; align-items: center; gap: var(--s3); min-height: 52px; padding: 0 var(--s4); border: 0; border-radius: 14px;
+    background: rgba(243, 239, 248, .06); color: var(--text); font: 500 var(--t-lead) var(--sans); text-align: left; cursor: pointer; }
+  .chartopt .flag { width: 28px; height: 28px; }
+  .chartopt > svg { width: 22px; height: 22px; color: var(--rose); }
+  .chartopt[aria-pressed="true"] { background: rgba(229, 96, 143, .14); }
   .chips { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
   .chip { height: 40px; padding: 0 var(--s4); border: 0; border-radius: 20px; background: rgba(243, 239, 248, .08); color: var(--text); font: inherit; cursor: pointer; }
   .chip:hover { background: rgba(243, 239, 248, .14); }
@@ -383,7 +401,7 @@ const I18N = {
     cont: "Continue", whatCall: "What should we call you?", welcome: "Welcome",
     secActivity: "Activity", secHours: "Listening time", secArtists: "Top artists", secTracks: "Top tracks", secRecent: "Recent",
     songsBy: "Songs by {artist}", discover: "Discover", findingForYou: "Finding songs for you…",
-    chartIn: "Top in {country}", yourArtists: "Your artists", coverFull: "Cover, tap to close",
+    chartIn: "Top in {country}", world: "the world", worldwide: "Worldwide", chooseChart: "Choose a chart", yourArtists: "Your artists", coverFull: "Cover, tap to close",
     noRecs: "No recommendations right now.", similar: "Similar to what you listen to.", popular: "Popular right now.",
   },
   ru: {
@@ -426,7 +444,7 @@ const I18N = {
     cont: "Продолжить", whatCall: "Как к вам обращаться?", welcome: "Добро пожаловать",
     secActivity: "Активность", secHours: "Время прослушивания", secArtists: "Любимые исполнители", secTracks: "Любимые треки", secRecent: "Недавние",
     songsBy: "Песни: {artist}", discover: "Открытия", findingForYou: "Подбираю песни для вас…",
-    chartIn: "Топ: {country}", yourArtists: "Ваши исполнители", coverFull: "Обложка, нажмите, чтобы закрыть",
+    chartIn: "Топ: {country}", world: "весь мир", worldwide: "Весь мир", chooseChart: "Выберите чарт", yourArtists: "Ваши исполнители", coverFull: "Обложка, нажмите, чтобы закрыть",
     noRecs: "Сейчас рекомендаций нет.", similar: "Похоже на то, что вы слушаете.", popular: "Популярное сейчас.",
   },
   it: {
@@ -466,7 +484,7 @@ const I18N = {
     cont: "Continua", whatCall: "Come ti chiamiamo?", welcome: "Benvenuto",
     secActivity: "Attività", secHours: "Tempo di ascolto", secArtists: "Artisti preferiti", secTracks: "Brani preferiti", secRecent: "Recenti",
     songsBy: "Brani di {artist}", discover: "Scopri", findingForYou: "Cerco brani per te…",
-    chartIn: "Top: {country}", yourArtists: "I tuoi artisti", coverFull: "Copertina, tocca per chiudere",
+    chartIn: "Top: {country}", world: "mondo", worldwide: "Tutto il mondo", chooseChart: "Scegli una classifica", yourArtists: "I tuoi artisti", coverFull: "Copertina, tocca per chiudere",
     noRecs: "Nessun consiglio al momento.", similar: "Simile a ciò che ascolti.", popular: "Popolare in questo momento.",
   },
 };
@@ -856,7 +874,7 @@ const SHUFFLE = ["M4 7h3.5L16.5 17H20", "M4 17h3.5l2.6-2.9", "M13.9 9.9L16.5 7H2
 function icon(name) {
   const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
   if (name === "repeat" || name === "shuffle") { for (const d of name === "repeat" ? REPEAT : SHUFFLE) s.append(svg("path", { d })); return s; }
-  const LINES = { close: "M6 6l12 12M18 6L6 18", down: "M6 9l6 6 6-6", up: "M6 15l6-6 6 6",  // drawn as strokes
+  const LINES = { close: "M6 6l12 12M18 6L6 18", down: "M6 9l6 6 6-6", check: "M5 12.5l4.5 4.5L19 7.5", up: "M6 15l6-6 6 6",  // drawn as strokes
     star: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z",  // «в избранное» — сердце
     dislike: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10zM4 4l16 16",
     more: "M5 12h.01M12 12h.01M19 12h.01",
@@ -1848,7 +1866,7 @@ function discoverPage(d) {
   if (!state.recsLoaded) page.append($("p", "note", t("findingForYou")));
   else if (!state.recs.length) page.append($("p", "note", t("noRecs")));
   else page.append($("p", "note", d.total ? t("similar") : t("popular")), gifts(state.recs));
-  if (state.chart.length) page.append(section(t("chartIn", { country: countryName(state.country) }), null, chartList(state.chart)));
+  if (state.chart.length) page.append(chartHead(), chartList(state.chart));
   const artists = d.top_artists.slice(0, 10);
   if (artists.length) {
     const chips = $("div", "chips");
@@ -1862,7 +1880,56 @@ function discoverPage(d) {
   return page;
 }
 function countryName(code) {
+  if (code === "global") return t("world");
   try { return new Intl.DisplayNames([LANG], { type: "region" }).of(code) || code; } catch (e) { return code; }
+}
+// round flags drawn here: Windows shows flag emoji as two letters, and these match the round shapes of the page
+const FLAGS = {
+  RU: [["#fff", 0, 8], ["#1C3FAA", 8, 8], ["#D52B1E", 16, 8]],
+  IT: [["#009246", 0, 8, 1], ["#fff", 8, 8, 1], ["#CE2B37", 16, 8, 1]],
+  US: [...Array.from({ length: 7 }, (_, i) => [i % 2 ? "#fff" : "#B22234", i * 24 / 7, 24 / 7 + .1]), ["#3C3B6E", 0, 13, 0, 12]],
+};
+function flag(code) {
+  const box = $("span", "flag" + (code === "global" ? " globe" : ""));
+  const s = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
+  if (code === "global") s.append(svg("path", { d: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2c3 3 4 6.5 4 10s-1 7-4 10M12 2c-3 3-4 6.5-4 10s1 7 4 10" }));
+  else if (FLAGS[code]) FLAGS[code].forEach(([fill, at, size, vertical, w]) => s.append(svg("rect", vertical
+    ? { x: at, y: 0, width: size, height: 24, fill } : { x: 0, y: at, width: w || 24, height: size, fill })));
+  else { const tx = svg("text", { x: 12, y: 16, "text-anchor": "middle", class: "flagcode" }); tx.textContent = code; s.append(tx); }
+  box.append(s); return box;
+}
+// the chart heading: the country glows and opens a choice of the world chart and three countries
+function chartHead() {
+  const h = $("h2", "charthead"), pick = $("button", "chartpick"), [before, after] = t("chartIn", { country: "\u0000" }).split("\u0000");
+  pick.append(flag(state.country), document.createTextNode(countryName(state.country)), icon("down"));
+  pick.setAttribute("aria-label", `${t("chooseChart")}: ${countryName(state.country)}`);
+  pick.onclick = openChartPicker;
+  h.append(document.createTextNode(before), pick, document.createTextNode(after || ""));
+  return h;
+}
+function chartChoices() {
+  return ["global", ...new Set([state.homeCountry, "RU", "US", "IT"].filter(Boolean))].slice(0, 4);
+}
+function openChartPicker() {
+  sheet.replaceChildren(); showSheet();
+  const list = $("div", "chartopts");
+  chartChoices().forEach(code => {
+    const b = $("button", "chartopt");
+    b.append(flag(code), $("span", null, code === "global" ? t("worldwide") : countryName(code)));
+    if (code === state.country) { b.setAttribute("aria-pressed", "true"); b.append(icon("check")); }
+    b.onclick = () => { closeSheet(); pickChart(code); };
+    list.append(b);
+  });
+  sheet.append($("div", "charttitle", t("chooseChart")), list);
+}
+async function pickChart(code) {
+  try { localStorage.setItem("chart", code); } catch (e) {}
+  if (code === state.country) return;
+  try {
+    const r = await api(`/api/chart?country=${encodeURIComponent(code)}`);
+    if (r.items.length) { state.chart = r.items; state.country = r.country; }
+  } catch (e) { /* the chart shown stays */ }
+  if (state.tab === "discover") render();
 }
 // the country's chart: a tap plays from that song down the list
 function chartList(items) {
@@ -1912,7 +1979,9 @@ async function main() {
 
   try {
     const r = await api("/api/recs");
-    state.recs = r.items; state.chart = r.chart || []; state.country = r.country || "";
+    state.recs = r.items; state.chart = r.chart || []; state.country = state.homeCountry = r.country || "";
+    let saved = ""; try { saved = localStorage.getItem("chart") || ""; } catch (e) {}
+    if (saved && saved !== state.country) await pickChart(saved);  // the chart chosen last time
   } catch (e) { /* ignore */ }
   state.recsLoaded = true;
   if (state.name && state.tab === "discover") render();  // recommendations are optional; the other pages do not use them

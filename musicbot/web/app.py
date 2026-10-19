@@ -828,6 +828,19 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
         # чарт страны показывается ниже рекомендаций на «Открытиях»
         return web.json_response({"items": items, "chart": chart[:10], "country": country})
 
+    async def top_chart(request: web.Request):
+        """Чарт, выбранный на «Открытиях»: страна (код ISO) или мировой."""
+        await authed_user(request)
+        country = request.query.get("country", "").strip()
+        if country.lower() == charts.GLOBAL:
+            country = charts.GLOBAL
+        elif len(country) == 2 and country.isalpha():
+            country = country.upper()
+        else:
+            raise web.HTTPBadRequest(text="bad country")
+        items = await asyncio.to_thread(charts.country_chart, country)
+        return web.json_response({"items": items[:10], "country": country})
+
     async def wave(request: web.Request):
         """«Моя волна»: следующая партия песен по вкусу. Страница присылает уже игравшие песни и пропущенных исполнителей."""
         user = await authed_user(request)
@@ -1080,6 +1093,7 @@ def make_app(bot: Bot | None, bot_token: str, bot_username: str, allowed: set[in
             web.get("/fav/{tok}", serve_fav),
             web.post("/api/handoff", handoff),
             web.get("/api/recs", recs),
+            web.get("/api/chart", top_chart),
             web.post("/api/wave", wave),
             web.post("/api/listened", listened),
             web.post("/api/lyrics", lyrics),

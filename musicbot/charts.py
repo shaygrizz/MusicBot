@@ -7,6 +7,8 @@ import time
 from . import net
 
 FEED = "https://rss.applemarketingtools.com/api/v2/{country}/music/most-played/{n}/songs.json"
+GLOBAL = "global"  # мирового чарта у Apple нет: его даёт Deezer
+GLOBAL_FEED = "https://api.deezer.com/chart/0/tracks?limit={n}"
 CHART_SIZE = 50
 TTL = 6 * 3600  # чарты Apple обновляются раз в день
 RETRY_AFTER = 2 * 60  # лента не ответила: до этого срока не спрашиваем снова
@@ -93,6 +95,20 @@ def country_for(timezone: str | None, lang: str) -> str:
 
 
 def _fetch(country: str) -> list[dict]:
+    if country == GLOBAL:
+        data = net.get_json(GLOBAL_FEED.format(n=CHART_SIZE), timeout=FEED_TIMEOUT).get("data", [])
+        return [
+            {
+                "artist": t["artist"]["name"],
+                "title": t["title"],
+                "duration": int(t.get("duration") or 0),
+                "cover": (t.get("album") or {}).get("cover_medium", ""),
+                "because": "",
+                "auto": True,
+            }
+            for t in data
+            if t.get("title") and (t.get("artist") or {}).get("name")
+        ]
     data = net.get_json(FEED.format(country=country.lower(), n=CHART_SIZE), timeout=FEED_TIMEOUT)
     out = []
     for t in data.get("feed", {}).get("results", []):

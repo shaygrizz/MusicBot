@@ -38,3 +38,55 @@ def test_chart_is_parsed_cached_and_a_failure_is_not_asked_again_at_once(monkeyp
     assert chart[0]["cover"] == "https://x/300x300bb.jpg" and chart[0]["auto"] is True
     assert charts.country_chart("RU") == chart and len(calls) == 1
     assert charts.country_chart("XX") == [] and charts.country_chart("XX") == [] and len(calls) == 2
+
+
+def test_world_chart_comes_from_deezer(monkeypatch):
+    monkeypatch.setattr(charts, "_cache", {})
+    deezer = {
+        "data": [
+            {
+                "title": "APT.",
+                "duration": 170,
+                "artist": {"name": "ROSÉ"},
+                "album": {"cover_medium": "https://d/250x250.jpg"},
+            },
+            {"title": "", "artist": {"name": "Пусто"}},
+        ]
+    }
+    monkeypatch.setattr(charts.net, "get_json", lambda url, timeout=10, headers=None: deezer if "deezer" in url else {})
+    chart = charts.country_chart(charts.GLOBAL)
+    assert chart == [
+        {
+            "artist": "ROSÉ",
+            "title": "APT.",
+            "duration": 170,
+            "cover": "https://d/250x250.jpg",
+            "because": "",
+            "auto": True,
+        }
+    ]
+
+
+async def test_mini_app_asks_for_a_country_or_the_world_chart(tmp_path, monkeypatch):
+    from aiohttp.test_utils import TestClient, TestServer
+    from test_auth import TOKEN, init_data
+
+    from musicbot import db
+    from musicbot.web.app import make_app
+
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
+    await db.init_db()
+    asked = []
+    monkeypatch.setattr(charts, "country_chart", lambda c: asked.append(c) or [{"title": str(i)} for i in range(30)])
+    c = TestClient(TestServer(make_app(None, TOKEN, "test_bot", set())))
+    await c.start_server()
+    try:
+        head = {"X-Init-Data": init_data(user={"id": 42, "first_name": "Rese"})}
+        world = await (await c.get("/api/chart?country=global", headers=head)).json()
+        assert world["country"] == "global" and len(world["items"]) == 10
+        assert (await (await c.get("/api/chart?country=it", headers=head)).json())["country"] == "IT"
+        assert (await c.get("/api/chart?country=../x", headers=head)).status == 400
+        assert (await c.get("/api/chart?country=US")).status == 401
+        assert asked == ["global", "IT"]
+    finally:
+        await c.close()
