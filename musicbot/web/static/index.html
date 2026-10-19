@@ -7,7 +7,7 @@
 <title>Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Forum&family=Golos+Text:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Forum&family=Golos+Text:wght@400;500;600;800&display=swap" rel="stylesheet">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
@@ -74,14 +74,21 @@
   .vinyl.today .disc { stroke: var(--gold); stroke-width: 2.5; }
   .axis { display: flex; justify-content: space-between; margin-top: var(--s2); color: var(--text2); font-size: var(--t-meta); }
 
-  /* часы */
-  .clock { max-width: 220px; margin-inline: auto; }
-  .tick { stroke: var(--rule); stroke-width: 2.5; stroke-linecap: round; }
-  .tick.on { stroke: var(--rose); }
-  .tick.peak { stroke: var(--gold); }
-  .hr { fill: var(--text2); font: 400 10px var(--sans); text-anchor: middle; }
-  .peak-t { fill: var(--text); font: 400 28px var(--display); text-anchor: middle; }
-  .clock p { margin: 0; color: var(--text2); font-size: var(--t-meta); }
+  /* время за день: светящееся кольцо и неделя столбиками */
+  .dose { margin-top: var(--s4); }
+  .dosering { position: relative; width: min(100%, 280px); aspect-ratio: 1; margin-inline: auto; }
+  .dosering svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+  .dtrack { fill: none; stroke: rgba(243, 239, 248, .07); stroke-width: 13; }
+  .dprog { fill: none; stroke: var(--rose); stroke-width: 13; stroke-linecap: round; filter: drop-shadow(0 0 6px rgba(229, 96, 143, .9)) drop-shadow(0 0 18px rgba(229, 96, 143, .5)); }
+  .dosemid { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+  .dosebig { font: 800 clamp(40px, 13vw, 58px)/1 var(--sans); letter-spacing: -.03em; white-space: nowrap; }
+  .dosesub { margin-top: var(--s2); color: var(--text2); }
+  .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s2); height: 110px; margin-top: var(--s6);
+    background: radial-gradient(ellipse 70% 100% at 50% 100%, rgba(229, 96, 143, .22), transparent 75%); }
+  .wcol { display: flex; align-items: flex-end; }
+  .wbar { width: 100%; border-radius: 8px; background: linear-gradient(rgba(229, 96, 143, .85), rgba(229, 96, 143, .4)); }
+  .wbar.now { background: var(--rose); box-shadow: 0 0 16px rgba(229, 96, 143, .6); }
+  .weeknames { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--s2); margin-top: var(--s2); color: var(--text2); font-size: var(--t-meta); text-align: center; text-transform: uppercase; }
 
   /* списки */
   .list { list-style: none; margin: 0; padding: 0; }
@@ -345,7 +352,7 @@ const I18N = {
     yourMusicNamed: "Your Music, {name}", yourMusic: "Your Music", noActivity: "No activity yet.", listened: " listened.",
     streak: " Streak: ", profileHint: "Tap your photo to change the picture and background.",
     editProfile: "Edit profile", profilePhoto: "Profile photo",
-    activityAria: "Activity over the last 30 days", ago30: "30 days ago", today: "Today", clockAria: "Listening by hour of day",
+    activityAria: "Activity over the last 30 days", ago30: "30 days ago", today: "Today", dailyDose: "your daily dose", hShort: "h", mShort: "m",
     unknownArtist: "Unknown artist", playItem: "Play {title}, {artist}",
     songs: "Songs", findingSongs: "Finding songs…", noSongs: "No songs found for this artist.", songsFail: "Could not load songs. Try again.",
     noTracks: "No tracks yet.", searchFavs: "Search favorites", noMatches: "Nothing found in favorites.", lyrics: "Lyrics", lyricsNone: "No lyrics for this song", closeLyrics: "Close lyrics", favFail: "Could not update favorites.", favRemove: "Remove from favorites", favAdd: "Add to favorites",
@@ -373,7 +380,7 @@ const I18N = {
     uploadingPhoto: "Uploading photo…", photoUpdated: "Photo updated.", photoFail: "Could not upload the photo.",
     enterName: "Enter a name.", saveFail: "Could not save. Try again.", language: "Language",
     cont: "Continue", whatCall: "What should we call you?", welcome: "Welcome",
-    secActivity: "Activity", secHours: "Listening hours", secArtists: "Top artists", secTracks: "Top tracks", secRecent: "Recent",
+    secActivity: "Activity", secHours: "Listening time", secArtists: "Top artists", secTracks: "Top tracks", secRecent: "Recent",
     songsBy: "Songs by {artist}", discover: "Discover", findingForYou: "Finding songs for you…",
     chartIn: "Top in {country}", yourArtists: "Your artists", coverFull: "Cover, tap to close",
     noRecs: "No recommendations right now.", similar: "Similar to what you listen to.", popular: "Popular right now.",
@@ -386,7 +393,7 @@ const I18N = {
     yourMusicNamed: "Ваша музыка, {name}", yourMusic: "Ваша музыка", noActivity: "Пока нет активности.", listened: " прослушано.",
     streak: " Серия: ", profileHint: "Нажмите на фото, чтобы сменить картинку и фон.",
     editProfile: "Изменить профиль", profilePhoto: "Фото профиля",
-    activityAria: "Активность за последние 30 дней", ago30: "30 дней назад", today: "Сегодня", clockAria: "Прослушивание по часам суток",
+    activityAria: "Активность за последние 30 дней", ago30: "30 дней назад", today: "Сегодня", dailyDose: "ваша доза за день", hShort: "ч", mShort: "м",
     unknownArtist: "Неизвестный исполнитель", playItem: "Включить {title}, {artist}",
     songs: "Песни", findingSongs: "Ищу песни…", noSongs: "Песен этого исполнителя не найдено.", songsFail: "Не удалось загрузить песни. Попробуйте ещё раз.",
     noTracks: "Пока нет треков.", searchFavs: "Поиск по избранному", noMatches: "В избранном ничего не найдено.", lyrics: "Текст песни", lyricsNone: "Для этой песни нет текста", closeLyrics: "Закрыть текст", favFail: "Не удалось обновить избранное.", favRemove: "Убрать из избранного", favAdd: "В избранное",
@@ -416,7 +423,7 @@ const I18N = {
     uploadingPhoto: "Загружаю фото…", photoUpdated: "Фото обновлено.", photoFail: "Не удалось загрузить фото.",
     enterName: "Введите имя.", saveFail: "Не удалось сохранить. Попробуйте ещё раз.", language: "Язык",
     cont: "Продолжить", whatCall: "Как к вам обращаться?", welcome: "Добро пожаловать",
-    secActivity: "Активность", secHours: "Часы прослушивания", secArtists: "Любимые исполнители", secTracks: "Любимые треки", secRecent: "Недавние",
+    secActivity: "Активность", secHours: "Время прослушивания", secArtists: "Любимые исполнители", secTracks: "Любимые треки", secRecent: "Недавние",
     songsBy: "Песни: {artist}", discover: "Открытия", findingForYou: "Подбираю песни для вас…",
     chartIn: "Топ: {country}", yourArtists: "Ваши исполнители", coverFull: "Обложка, нажмите, чтобы закрыть",
     noRecs: "Сейчас рекомендаций нет.", similar: "Похоже на то, что вы слушаете.", popular: "Популярное сейчас.",
@@ -428,7 +435,7 @@ const I18N = {
     yourMusicNamed: "La tua musica, {name}", yourMusic: "La tua musica", noActivity: "Ancora nessuna attività.", listened: " ascoltati.",
     streak: " Serie: ", profileHint: "Tocca la tua foto per cambiare immagine e sfondo.",
     editProfile: "Modifica profilo", profilePhoto: "Foto del profilo",
-    activityAria: "Attività degli ultimi 30 giorni", ago30: "30 giorni fa", today: "Oggi", clockAria: "Ascolto per ora del giorno",
+    activityAria: "Attività degli ultimi 30 giorni", ago30: "30 giorni fa", today: "Oggi", dailyDose: "la tua dose di oggi", hShort: "h", mShort: "m",
     unknownArtist: "Artista sconosciuto", playItem: "Riproduci {title}, {artist}",
     songs: "Brani", findingSongs: "Cerco i brani…", noSongs: "Nessun brano trovato per questo artista.", songsFail: "Impossibile caricare i brani. Riprova.",
     noTracks: "Ancora nessun brano.", searchFavs: "Cerca nei preferiti", noMatches: "Nessun risultato nei preferiti.", lyrics: "Testo", lyricsNone: "Nessun testo per questo brano", closeLyrics: "Chiudi il testo", favFail: "Impossibile aggiornare i preferiti.", favRemove: "Rimuovi dai preferiti", favAdd: "Aggiungi ai preferiti",
@@ -456,7 +463,7 @@ const I18N = {
     uploadingPhoto: "Carico la foto…", photoUpdated: "Foto aggiornata.", photoFail: "Impossibile caricare la foto.",
     enterName: "Inserisci un nome.", saveFail: "Impossibile salvare. Riprova.", language: "Lingua",
     cont: "Continua", whatCall: "Come ti chiamiamo?", welcome: "Benvenuto",
-    secActivity: "Attività", secHours: "Ore di ascolto", secArtists: "Artisti preferiti", secTracks: "Brani preferiti", secRecent: "Recenti",
+    secActivity: "Attività", secHours: "Tempo di ascolto", secArtists: "Artisti preferiti", secTracks: "Brani preferiti", secRecent: "Recenti",
     songsBy: "Brani di {artist}", discover: "Scopri", findingForYou: "Cerco brani per te…",
     chartIn: "Top: {country}", yourArtists: "I tuoi artisti", coverFull: "Copertina, tocca per chiudere",
     noRecs: "Nessun consiglio al momento.", similar: "Simile a ciò che ascolti.", popular: "Popolare in questo momento.",
@@ -613,23 +620,37 @@ function daysGrid(days) {
   return wrap;
 }
 
-function clock(hours) {
-  const list = Array.from({ length: 24 }, (_, h) => hours[h] || 0), max = Math.max(...list), peak = list.indexOf(max);
-  const s = svg("svg", { viewBox: "0 0 200 200", role: "img", "aria-label": t("clockAria") });
-  list.forEach((v, h) => {
-    const a = (h * 15 - 90) * Math.PI / 180, r1 = 58, r2 = r1 + (v ? 8 + 26 * (v / max) : 4);
-    s.append(svg("line", { x1: 100 + r1 * Math.cos(a), y1: 100 + r1 * Math.sin(a), x2: 100 + r2 * Math.cos(a), y2: 100 + r2 * Math.sin(a),
-      class: `tick${v ? " on" : ""}${v && h === peak ? " peak" : ""}` }));
+const doseText = s => {
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}${t("hShort")} ${m}${t("mShort")}` : `${m}${t("mShort")}`;
+};
+// today's listening as a glowing ring (full = your usual day over the last 30 days) and this week, Monday to Sunday
+function dose(secs) {
+  const now = new Date(), today = secs[dayKey(now)] || 0;
+  const month = [];
+  for (let i = 1; i <= 30; i++) { const dt = new Date(now); dt.setDate(dt.getDate() - i); if (secs[dayKey(dt)]) month.push(secs[dayKey(dt)]); }
+  const usual = month.length ? month.reduce((a, b) => a + b, 0) / month.length : 3600;
+  const wrap = $("div", "dose"), ring = $("div", "dosering"), mid = $("div", "dosemid");
+  const C = 2 * Math.PI * 88, part = Math.min(1, today / Math.max(usual, 60));
+  const s = svg("svg", { viewBox: "0 0 200 200", "aria-hidden": "true" });
+  s.append(svg("circle", { cx: 100, cy: 100, r: 88, class: "dtrack" }));
+  if (part) s.append(svg("circle", { cx: 100, cy: 100, r: 88, class: "dprog", "stroke-dasharray": `${C * part} ${C}` }));
+  mid.append($("div", "dosebig", doseText(today)), $("div", "dosesub", t("dailyDose")));
+  ring.append(s, mid);
+  ring.setAttribute("role", "img"); ring.setAttribute("aria-label", `${t("dailyDose")}: ${doseText(today)}`);
+
+  const monday = new Date(now); monday.setDate(now.getDate() - (now.getDay() + 6) % 7);
+  const days = Array.from({ length: 7 }, (_, i) => { const dt = new Date(monday); dt.setDate(monday.getDate() + i); return dt; });
+  const vals = days.map(dt => dt > now ? 0 : secs[dayKey(dt)] || 0), max = Math.max(1, ...vals);
+  const week = $("div", "week"), names = $("div", "weeknames"), letter = new Intl.DateTimeFormat(LOCALES[LANG], { weekday: "narrow" });
+  days.forEach((dt, i) => {
+    const col = $("div", "wcol"), bar = $("div", "wbar" + (dayKey(dt) === dayKey(now) ? " now" : ""));
+    bar.style.height = vals[i] ? `${Math.max(8, vals[i] / max * 100)}%` : "0";
+    bar.title = `${dateShort(dt)}: ${doseText(vals[i])}`;
+    col.append(bar); week.append(col); names.append($("span", null, letter.format(dt)));
   });
-  [0, 6, 12, 18].forEach(h => {
-    const a = (h * 15 - 90) * Math.PI / 180;
-    const tx = svg("text", { x: 100 + 92 * Math.cos(a), y: 100 + 92 * Math.sin(a) + 3, class: "hr" }); tx.textContent = h; s.append(tx);
-  });
-  const wrap = $("div", "clock");
-  if (max) {
-    const c = svg("text", { x: 100, y: 110, class: "peak-t" }); c.textContent = `${pad(peak)}:00`; s.append(c);
-  }
-  wrap.append(s);
+  week.setAttribute("aria-hidden", "true");
+  wrap.append(ring, week, names);
   return wrap;
 }
 
@@ -1783,7 +1804,7 @@ function statsPage(d) {
   if (d.total) {
     page.append(
       section(t("secActivity"), null, daysGrid(d.days)),
-      section(t("secHours"), null, clock(d.hours)));
+      section(t("secHours"), null, dose(d.day_seconds || {})));
     if (d.top_artists.length) page.append(section(t("secArtists"), null,
       ranked(d.top_artists, x => x.artist, x => hoursText(x.seconds), x => tracks(x.plays),
         i => openArtist(d.top_artists[i].artist), x => t("songsBy", { artist: x.artist }))));

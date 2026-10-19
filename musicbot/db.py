@@ -368,7 +368,7 @@ async def dashboard(user_id: int) -> dict:
             await rows("SELECT COUNT(*), COALESCE(SUM(duration),0), MIN(ts) FROM plays WHERE user_id=?", user_id)
         )[0]
         days = await rows(
-            "SELECT strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime') d, COUNT(*) "
+            "SELECT strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime') d, COUNT(*), COALESCE(SUM(duration),0) "
             "FROM plays WHERE user_id=? AND ts >= strftime('%s','now','-60 day') GROUP BY d",
             user_id,
         )
@@ -400,7 +400,8 @@ async def dashboard(user_id: int) -> dict:
         "total": total,
         "seconds": seconds,
         "first_ts": first_ts,
-        "days": {d: c for d, c in days},
+        "days": {d: c for d, c, _ in days},
+        "day_seconds": {d: s for d, _, s in days},  # сколько слушали в каждый день: кольцо «за день» и неделя
         "hours": {h: c for h, c in hours},
         "top_artists": [{"artist": a, "plays": c, "seconds": s} for a, c, s in top_artists],
         "top_tracks": [
