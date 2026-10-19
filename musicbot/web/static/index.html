@@ -46,9 +46,7 @@
   .backdrop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .24; }
   /* header */
   .letter { display: grid; grid-template-columns: 80px 1fr; gap: var(--s4); align-items: start; }
-  .letter .gem { width: 80px; height: 80px; padding: 0; background: none; border-radius: 12px; overflow: hidden; }  /* фото без золотой рамки и срезанных углов */
-  .letter .cut8 { clip-path: none; }
-  .letter .gem > div { background: none; }
+  .letter .gem { width: 80px; height: 80px; }
   .letter .gem img { object-position: center 20%; }
   h1 { margin: 0 0 var(--s2); font: 400 var(--t-h1)/1.1 var(--display); }
   .letter p { margin: 0; max-width: 40ch; color: var(--text2); }
@@ -99,12 +97,10 @@
   .gifts { display: flex; gap: var(--s4); overflow-x: auto; margin-inline: calc(var(--s4) * -1); padding: var(--s1) var(--s4) var(--s3); scrollbar-width: none; }
   .gifts::-webkit-scrollbar { display: none; }
   .gift { flex: none; width: 136px; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
-  .cut8 { clip-path: polygon(16% 0, 84% 0, 100% 16%, 100% 84%, 84% 100%, 16% 100%, 0 84%, 0 16%); }
-  .gem { width: 136px; height: 136px; padding: 2px; background: var(--gold); }
-  .gem > div { width: 100%; height: 100%; background: var(--surface); }
+  /* все картинки (обложки, фото профиля) в одном стиле: скруглённый квадрат без рамки */
+  .gem { width: 136px; height: 136px; border-radius: 12px; overflow: hidden; background: var(--surface); }
+  .gem > div { width: 100%; height: 100%; }
   .gem img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .gift .gem { padding: 0; background: none; border-radius: 12px; overflow: hidden; }  /* обложки как на «Волне»: без рамки и граней */
-  .gift .cut8 { clip-path: none; }
   .gift .t { margin-top: var(--s3); font: 400 var(--t-lead)/1.2 var(--display); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .gift .a { margin-top: var(--s1); color: var(--text2); font-size: var(--t-meta); }
 
@@ -117,7 +113,7 @@
   .sheet {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; margin-inline: auto; max-width: 560px;
     background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-top: 2px solid var(--gold);
-    clip-path: polygon(0 20px, 20px 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+    border-radius: 20px 20px 0 0;
     padding: var(--s5) var(--s4) calc(var(--s5) + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto;
     transform: translateY(105%);
   }
@@ -125,9 +121,6 @@
   @media (prefers-reduced-motion: no-preference) { .sheet { transition: transform .25s ease-out; } }
   .head { display: grid; grid-template-columns: 80px 1fr; gap: var(--s4); align-items: center; }
   .head .gem { width: 80px; height: 80px; }
-  .head.profile .gem { padding: 0; background: none; border-radius: 12px; overflow: hidden; }  /* фото профиля без золотой рамки и срезанных углов */
-  .head.profile .cut8 { clip-path: none; }
-  .head.profile .gem > div { background: none; }
   .head .t { font: 400 var(--t-h2)/1.15 var(--display); overflow-wrap: anywhere; }
   .head .a { margin-top: var(--s1); color: var(--text2); }
   .why { margin-top: var(--s2); color: var(--gold); font-size: var(--t-meta); }
@@ -185,7 +178,7 @@
 
   /* плейлист любимого: быстрая кнопка и плеер внизу */
   .quick { margin-top: var(--s5); }
-  .nowbar { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 9; margin-inline: auto; max-width: 560px; padding: var(--s4) var(--s4) var(--s3); background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-top: 2px solid var(--gold); clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }
+  .nowbar { position: fixed; left: 0; right: 0; bottom: var(--tabbar); z-index: 9; margin-inline: auto; max-width: 560px; padding: var(--s4) var(--s4) var(--s3); background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-top: 2px solid var(--gold); border-radius: 16px 16px 0 0; }
   .nowbar[hidden] { display: none; }
   /* обложка песни на месте пластинки; песня без обложки остаётся с пластинкой */
   .nowtop .disc { width: 52px; height: 52px; }
@@ -256,7 +249,7 @@
   .ico.fav.on svg path { fill: currentColor; }  /* в избранном — звезда закрашена */
   /* свёрнутый плеер: тонкая полоса с прогрессом, кнопкой и названием; нажатие на название раскрывает его */
   .nowmini { display: none; }
-  .nowbar.min { padding: 0 var(--s3); clip-path: none; }
+  .nowbar.min { padding: 0 var(--s3); border-radius: 0; }
   .nowbar.min > :not(.nowmini) { display: none; }
   .nowbar.min .nowmini { position: relative; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; height: 48px; }
   .minline { position: absolute; left: 0; top: -2px; height: 2px; width: 0; background: var(--rose); }
@@ -272,11 +265,10 @@
   .tab[aria-current="page"] { color: var(--rose); }
   .pagetitle { margin: 0 0 var(--s4); }
 
-  /* главная: «My Wave» в стиле страницы: ваша картинка за стеклом, золотая рамка, грани; цвет обложки лишь слегка подсвечивает фон */
+  /* главная: «My Wave» в стиле страницы: ваша картинка за стеклом; цвет обложки лишь слегка подсвечивает фон */
   .wavepage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s5); text-align: center; min-height: calc(100dvh - var(--tabbar) - 2 * var(--s5)); }
   .wavetitle { margin: 0; font: 400 clamp(44px, 14vw, 64px)/1 var(--display); letter-spacing: .01em; }
-  .wgem { width: 168px; height: 168px; padding: 0; background: none; border-radius: 12px; overflow: hidden; clip-path: none; }  /* картинка без рамки */
-  .wgem > div { clip-path: none; background: none; }
+  .wgem { width: 168px; height: 168px; }
   .wgem img { object-position: center; }
   .wcard { width: 100%; }
   .wrow { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: var(--s2); align-items: center; width: 100%; }
@@ -556,7 +548,7 @@ function setBackdrop() {
   try { localStorage.setItem("bg", src); } catch (e) { /* private window: the default flashes once, nothing breaks */ }
 }
 function avatar() {
-  const btn = $("button", "avatar"), g = $("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
+  const btn = $("button", "avatar"), g = $("div", "gem"), inner = $("div"), img = $("img");
   btn.setAttribute("aria-label", t("editProfile"));
   img.alt = t("profilePhoto"); img.src = state.avatar || "/static/Diamond.jpg"; inner.append(img); g.append(inner); btn.append(g);
   btn.onclick = openProfile;
@@ -705,7 +697,7 @@ async function openArtist(name) {
 }
 
 function gem(url) {
-  const g = $("div", "gem cut8"), inner = $("div", "cut8");
+  const g = $("div", "gem"), inner = $("div");
   if (url && url.startsWith("https://")) { const i = $("img"); i.src = url; i.alt = ""; i.loading = "lazy"; inner.append(i); }
   g.append(inner); return g;
 }
@@ -1240,7 +1232,7 @@ async function startWave() {
 // the home page: the wave plays right here, so the bottom player is hidden while it is on screen
 const wv = { note: "", drag: false };
 function wavePage() {
-  const page = $("section", "wavepage"), cover = $("div", "gem cut8 wgem"), inner = $("div", "cut8"), img = $("img"), row = $("div", "wrow"), card = $("div", "wcard");
+  const page = $("section", "wavepage"), cover = $("div", "gem wgem"), inner = $("div"), img = $("img"), row = $("div", "wrow"), card = $("div", "wcard");
   const dis = iconButton("dislike", t("waveDislike"), "wround");
   const pill = $("div", "wpill"), like = iconButton("star", t("favAdd"), "wround");
   const ctrl = $("div", "wctrl"), prev = iconButton("prev", t("prevTrack"), "wsk"), play = $("button", "wplay");
@@ -1694,7 +1686,7 @@ function gifts(items) {
 function openProfile() {
   sheet.replaceChildren();
   showSheet();
-  const head = $("div", "head profile"), info = $("div"), g =$("div", "gem cut8"), inner = $("div", "cut8"), img = $("img");
+  const head = $("div", "head profile"), info = $("div"), g =$("div", "gem"), inner = $("div"), img = $("img");
   img.alt = ""; img.src = state.avatar || "/static/Diamond.jpg"; inner.append(img); g.append(inner);
   info.append($("div", "t", t("profile")));
   head.append(g, info);
